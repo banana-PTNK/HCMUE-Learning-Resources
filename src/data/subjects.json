@@ -1,0 +1,828 @@
+[
+  {
+    "id": "comp1011",
+    "code": "COMP1011",
+    "name": "Cơ sở dữ liệu",
+    "englishName": "Database Systems",
+    "category": "foundation",
+    "categoryName": "Môn học cơ sở ngành",
+    "semester": "Học kỳ 3 (Năm 2)",
+    "credits": 4,
+    "theoryHours": 3,
+    "practicalHours": 1,
+    "description": "Thiết kế mô hình quan hệ (ERD), đại số quan hệ, chuẩn hóa dữ liệu 1NF-BCNF và truy vấn ngôn ngữ SQL nâng cao.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1011-Database",
+    "lastUpdated": "24/10/2023, 14:30",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": null,
+      "practical": 0.4,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1001", "name": "Nhập môn Lập trình" }
+      ],
+      "prerequisiteCourses": [
+        { "code": "MATH101", "name": "Toán rời rạc" }
+      ]
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Tổng quan về Hệ quản trị Cơ sở dữ liệu",
+        "description": "Khái niệm CSDL, kiến trúc 3 mức ANSI-SPARC, mô hình thực thể kết hợp (ER/EER Model)."
+      },
+      {
+        "chapter": 2,
+        "title": "Mô hình Dữ liệu Quan hệ & Đại số Quan hệ",
+        "description": "Các phép toán tập hợp, phép chọn (Select), chiếu (Project), kết nối (Natural/Theta Join)."
+      },
+      {
+        "chapter": 3,
+        "title": "Ngôn ngữ Truy vấn SQL Nâng cao",
+        "description": "DDL, DML, DCL, truy vấn lồng, gom nhóm GROUP BY/HAVING, Stored Procedures và Triggers."
+      },
+      {
+        "chapter": 4,
+        "title": "Lý thuyết Chuẩn hóa Cơ sở dữ liệu",
+        "description": "Phụ thuộc hàm, bao đóng, tìm khóa tối thiểu và các dạng chuẩn 1NF, 2NF, 3NF, BCNF."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 12,
+      "exams": 8,
+      "labs": 6,
+      "projects": 3
+    }
+  },
+  {
+    "id": "comp1012",
+    "code": "COMP1012",
+    "name": "Cấu trúc Dữ liệu và Giải thuật",
+    "englishName": "Data Structures & Algorithms",
+    "category": "foundation",
+    "categoryName": "Môn học cơ sở ngành",
+    "semester": "Học kỳ 3 (Năm 2)",
+    "credits": 3,
+    "theoryHours": 2,
+    "practicalHours": 1,
+    "description": "Cấu trúc dữ liệu nâng cao (cây nhị phân tìm kiếm, AVL, bảng băm, đồ thị) và các kỹ thuật thiết kế thuật toán phân tích Big-O.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1012-DSA",
+    "lastUpdated": "24/10/2023, 14:30",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": null,
+      "practical": 0.4,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "IT001", "name": "Nhập môn Lập trình (C++)" }
+      ],
+      "prerequisiteCourses": [
+        { "code": "MATH101", "name": "Toán rời rạc" }
+      ]
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Tổng quan & Phân tích Độ phức tạp Thuật toán",
+        "description": "Độ phức tạp thời gian Big-O, Big-Omega, Big-Theta, phân tích không gian bộ nhớ."
+      },
+      {
+        "chapter": 2,
+        "title": "Cấu trúc Dữ liệu Tuyến tính (Linear Data Structures)",
+        "description": "Mảng động, Danh sách liên kết đơn/đôi, Ngăn xếp (Stack), Hàng đợi (Queue) & ứng dụng."
+      },
+      {
+        "chapter": 3,
+        "title": "Cấu trúc Cây & Cây Tìm kiếm Nhị phân (Trees & BST)",
+        "description": "Cây nhị phân, Cây BST, Cây cân bằng AVL, Heap, Cây đỏ đen và thuật toán duyệt cây."
+      },
+      {
+        "chapter": 4,
+        "title": "Thuật toán Tìm kiếm, Sắp xếp & Bảng băm",
+        "description": "QuickSort, MergeSort, HeapSort, Binary Search, Hash Table và giải quyết đụng độ."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 16,
+      "exams": 10,
+      "labs": 8,
+      "projects": 4
+    }
+  },
+  {
+    "id": "comp1013",
+    "code": "COMP1013",
+    "name": "Lập trình Hướng đối tượng",
+    "englishName": "Object-Oriented Programming",
+    "category": "foundation",
+    "categoryName": "Môn học cơ sở ngành",
+    "semester": "Học kỳ 3 (Năm 2)",
+    "credits": 4,
+    "theoryHours": 3,
+    "practicalHours": 1,
+    "description": "Các nguyên lý cốt lõi OOP (Đóng gói, Kế thừa, Đa hình, Trừu tượng hóa), Design Patterns cơ bản và thực hành Java/C++.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1013-OOP",
+    "lastUpdated": "20/10/2023, 09:15",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": 0.2,
+      "practical": 0.2,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1001", "name": "Kỹ thuật Lập trình" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Tư duy Lập trình Hướng đối tượng",
+        "description": "Khái niệm Class, Object, Instance, Constructor/Destructor, Encapsulation và Access Modifiers."
+      },
+      {
+        "chapter": 2,
+        "title": "Kế thừa (Inheritance) & Đa hình (Polymorphism)",
+        "description": "Virtual functions, Method Overriding, Method Overloading, Abstract Class và Interface."
+      },
+      {
+        "chapter": 3,
+        "title": "Xử lý Ngoại lệ & Quản lý Bộ nhớ",
+        "description": "Try-catch-finally, Custom Exceptions, Garbage Collection, Smart Pointers trong C++."
+      },
+      {
+        "chapter": 4,
+        "title": "Nguyên lý SOLID & Mẫu thiết kế (Design Patterns)",
+        "description": "Singleton, Factory, Observer, Strategy và áp dụng xây dựng ứng dụng đồ họa GUI."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 14,
+      "exams": 6,
+      "labs": 7,
+      "projects": 5
+    }
+  },
+  {
+    "id": "comp1014",
+    "code": "COMP1014",
+    "name": "Kiến trúc Máy tính",
+    "englishName": "Computer Architecture",
+    "category": "foundation",
+    "categoryName": "Môn học cơ sở ngành",
+    "semester": "Học kỳ 4 (Năm 2)",
+    "credits": 3,
+    "theoryHours": 2,
+    "practicalHours": 1,
+    "description": "Nguyên lý hoạt động phần cứng, tập lệnh kiến trúc MIPS/x86, phân cấp bộ nhớ Cache và xử lý đường ống Pipelining.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1014-CompArch",
+    "lastUpdated": "18/10/2023, 16:00",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": 0.2,
+      "practical": 0.2,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1002", "name": "Nhập môn Điện tử Số" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Biểu diễn Dữ liệu & Tập lệnh MIPS",
+        "description": "Hệ thống số nhị phân/thập lục phân, số dấu phẩy động IEEE 754, tập lệnh MIPS."
+      },
+      {
+        "chapter": 2,
+        "title": "Khối xử lý trung tâm (Datapath & Control Unit)",
+        "description": "Thiết kế Single-Cycle CPU và Multi-Cycle CPU, đường dẫn dữ liệu và khối điều khiển."
+      },
+      {
+        "chapter": 3,
+        "title": "Kỹ thuật Xử lý Đường ống (Pipelining)",
+        "description": "Các giai đoạn IF, ID, EX, MEM, WB và giải quyết xung đột đường ống (Data/Control Hazard)."
+      },
+      {
+        "chapter": 4,
+        "title": "Phân cấp Bộ nhớ & Bộ nhớ Đệm (Memory Hierarchy & Cache)",
+        "description": "Direct Mapped Cache, Set-Associative Cache, ánh xạ bộ nhớ ảo và cơ chế phân trang."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 10,
+      "exams": 5,
+      "labs": 4,
+      "projects": 2
+    }
+  },
+  {
+    "id": "comp1015",
+    "code": "COMP1015",
+    "name": "Hệ điều hành",
+    "englishName": "Operating Systems",
+    "category": "foundation",
+    "categoryName": "Môn học cơ sở ngành",
+    "semester": "Học kỳ 4 (Năm 2)",
+    "credits": 3,
+    "theoryHours": 2,
+    "practicalHours": 1,
+    "description": "Quản lý tiến trình & luồng, định thời CPU, đồng bộ hóa tranh chấp tiến trình, quản lý bộ nhớ và hệ thống tập tin Linux.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1015-OS",
+    "lastUpdated": "15/10/2023, 11:20",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": 0.2,
+      "practical": 0.2,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1014", "name": "Kiến trúc Máy tính" }
+      ],
+      "prerequisiteCourses": [
+        { "code": "COMP1012", "name": "Cấu trúc Dữ liệu và Giải thuật" }
+      ]
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Cấu trúc Hệ điều hành & Tiến trình",
+        "description": "Kiến trúc Kernel, System Calls, Process Control Block (PCB), vòng đời tiến trình."
+      },
+      {
+        "chapter": 2,
+        "title": "Định thời CPU & Đa luồng (Threads)",
+        "description": "FCFS, SJF, Round Robin, Multilevel Feedback Queue và POSIX Threads (pthreads)."
+      },
+      {
+        "chapter": 3,
+        "title": "Đồng bộ hóa Tiến trình & Bế tắc (Deadlock)",
+        "description": "Vùng găng (Critical Section), Mutex, Semaphore, Bài toán Dining Philosophers, Banker's Algorithm."
+      },
+      {
+        "chapter": 4,
+        "title": "Quản lý Bộ nhớ & Hệ thống Tập tin (File System)",
+        "description": "Bộ nhớ ảo, Phân trang Paging, Thay thế trang (FIFO, LRU), Virtual File System (VFS)."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 11,
+      "exams": 7,
+      "labs": 5,
+      "projects": 3
+    }
+  },
+  {
+    "id": "comp1016",
+    "code": "COMP1016",
+    "name": "Mạng máy tính",
+    "englishName": "Computer Networks",
+    "category": "foundation",
+    "categoryName": "Môn học cơ sở ngành",
+    "semester": "Học kỳ 4 (Năm 2)",
+    "credits": 3,
+    "theoryHours": 2,
+    "practicalHours": 1,
+    "description": "Mô hình OSI và TCP/IP, định tuyến IP subnetting, giao thức TCP/UDP, DNS, HTTP/HTTPS và cấu hình mạng Cisco Packet Tracer.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1016-Networking",
+    "lastUpdated": "12/10/2023, 14:00",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": 0.2,
+      "practical": 0.2,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1014", "name": "Kiến trúc Máy tính" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Tổng quan Mô hình Phân tầng OSI & TCP/IP",
+        "description": "Mô hình 7 tầng OSI, kiến trúc 4 tầng TCP/IP, cơ chế đóng gói dữ liệu (Encapsulation)."
+      },
+      {
+        "chapter": 2,
+        "title": "Tầng Ứng dụng & Tầng Giao vận (Transport Layer)",
+        "description": "DNS, HTTP, WebSocket, bắt tay 3 bước TCP (3-way handshake), kiểm soát luồng và chống nghẽn."
+      },
+      {
+        "chapter": 3,
+        "title": "Tầng Mạng & Chia mạng con (Network Layer & Subnetting)",
+        "description": "Địa chỉ IPv4/IPv6, CIDR, định tuyến tĩnh & động (OSPF, BGP), giao thức ICMP/NAT."
+      },
+      {
+        "chapter": 4,
+        "title": "Tầng Liên kết dữ liệu & An ninh mạng cơ bản",
+        "description": "Ethernet, CSMA/CD, giao thức ARP, VLAN và cấu hình tường lửa căn bản."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 12,
+      "exams": 6,
+      "labs": 6,
+      "projects": 2
+    }
+  },
+  {
+    "id": "comp1001",
+    "code": "MATH101",
+    "name": "Đại số tuyến tính",
+    "englishName": "Linear Algebra",
+    "category": "general",
+    "categoryName": "Môn học đại cương",
+    "semester": "Học kỳ 1 (Năm 1)",
+    "credits": 3,
+    "theoryHours": 3,
+    "practicalHours": 0,
+    "description": "Ma trận, định thức, hệ phương trình tuyến tính, không gian véctơ, ma trận chéo hóa và ứng dụng trong khoa học dữ liệu & đồ họa máy tính.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-MATH101-LinearAlgebra",
+    "lastUpdated": "10/10/2023, 10:00",
+    "gradingWeights": {
+      "process": 0.3,
+      "midterm": 0.2,
+      "practical": null,
+      "final": 0.5
+    },
+    "prerequisites": {
+      "previousCourses": [],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Ma trận & Định thức (Matrices & Determinants)",
+        "description": "Phép toán ma trận, biến đổi sơ cấp, tính định thức và ma trận nghịch đảo."
+      },
+      {
+        "chapter": 2,
+        "title": "Hệ Phương trình Tuyến tính",
+        "description": "Phương pháp khử Gauss-Jordan, định lý Kronecker-Capelli, hệ thuần nhất."
+      },
+      {
+        "chapter": 3,
+        "title": "Không gian Véctơ & Cơ sở",
+        "description": "Tập sinh, độc lập tuyến tính, cơ sở, số chiều và trực chuẩn hóa Gram-Schmidt."
+      },
+      {
+        "chapter": 4,
+        "title": "Trị riêng, Véctơ riêng & Chéo hóa Ma trận",
+        "description": "Đa thức đặc trưng, trị riêng, véctơ riêng, ứng dụng phân tích SVD trong AI."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 8,
+      "exams": 9,
+      "labs": 0,
+      "projects": 1
+    }
+  },
+  {
+    "id": "math102",
+    "code": "MATH102",
+    "name": "Giải tích",
+    "englishName": "Calculus",
+    "category": "general",
+    "categoryName": "Môn học đại cương",
+    "semester": "Học kỳ 1 (Năm 1)",
+    "credits": 3,
+    "theoryHours": 3,
+    "practicalHours": 0,
+    "description": "Phép tính vi phân và tích phân hàm một biến và nhiều biến, chuỗi số, phương trình vi phân và ứng dụng trong tối ưu hóa toán học.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-MATH102-Calculus",
+    "lastUpdated": "10/10/2023, 11:30",
+    "gradingWeights": {
+      "process": 0.3,
+      "midterm": 0.2,
+      "practical": null,
+      "final": 0.5
+    },
+    "prerequisites": {
+      "previousCourses": [],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Phép tính Vi phân Hàm một biến",
+        "description": "Giới hạn, đạo hàm, khai triển Taylor-Maclaurin, tìm cực trị hàm số."
+      },
+      {
+        "chapter": 2,
+        "title": "Phép tính Tích phân & Ứng dụng",
+        "description": "Tích phân bất định, tích phân suy rộng, tính diện tích và thể tích hình khối."
+      },
+      {
+        "chapter": 3,
+        "title": "Hàm nhiều biến & Đạo hàm riêng",
+        "description": "Gradient, Hessian, cực trị có điều kiện (Nhân tử Lagrange) ứng dụng trong Gradient Descent."
+      },
+      {
+        "chapter": 4,
+        "title": "Chuỗi số & Chuỗi lũy thừa",
+        "description": "Tiêu chuẩn hội tụ d'Alembert, Cauchy, chuỗi Fourier cơ bản."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 10,
+      "exams": 12,
+      "labs": 0,
+      "projects": 0
+    }
+  },
+  {
+    "id": "comp1021",
+    "code": "COMP1021",
+    "name": "Phát triển Web Nâng cao",
+    "englishName": "Advanced Web Development",
+    "category": "specialized",
+    "categoryName": "Môn học chuyên ngành",
+    "semester": "Học kỳ 5 (Năm 3)",
+    "credits": 4,
+    "theoryHours": 2,
+    "practicalHours": 2,
+    "description": "Xây dựng ứng dụng web hiện đại Fullstack với React/Next.js, Node.js/Express, RESTful/GraphQL API, xác thực JWT và tối ưu hiệu năng SSR/SSG.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1021-WebDev",
+    "lastUpdated": "21/10/2023, 15:45",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": null,
+      "practical": 0.4,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1011", "name": "Cơ sở dữ liệu" },
+        { "code": "COMP1013", "name": "Lập trình Hướng đối tượng" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Kiến trúc Web Hiện đại & Frontend Reactive",
+        "description": "TypeScript, React Hooks, State Management (Zustand/Redux), Tailwind CSS."
+      },
+      {
+        "chapter": 2,
+        "title": "Server-side Rendering & Next.js App Router",
+        "description": "Server Components, Server Actions, Dynamic Routing, Image Optimization và SEO."
+      },
+      {
+        "chapter": 3,
+        "title": "Backend Services, Microservices & Caching",
+        "description": "Express/NestJS, MongoDB/PostgreSQL, Redis Caching, WebSocket realtime."
+      },
+      {
+        "chapter": 4,
+        "title": "Bảo mật Web & Triển khai Đám mây (CI/CD)",
+        "description": "CORS, XSS, CSRF, OAuth 2.0, Docker containerization và triển khai Vercel/Cloud Run."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 18,
+      "exams": 5,
+      "labs": 10,
+      "projects": 6
+    }
+  },
+  {
+    "id": "comp1022",
+    "code": "COMP1022",
+    "name": "Trí tuệ Nhân tạo & Học máy",
+    "englishName": "Artificial Intelligence & Machine Learning",
+    "category": "specialized",
+    "categoryName": "Môn học chuyên ngành",
+    "semester": "Học kỳ 5 (Năm 3)",
+    "credits": 4,
+    "theoryHours": 3,
+    "practicalHours": 1,
+    "description": "Các thuật toán tìm kiếm A*, Minimax, học máy có giám sát (Linear/Logistic Regression, SVM, Decision Tree), Mạng nơ-ron tích chập (CNN) và Deep Learning.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1022-AIML",
+    "lastUpdated": "23/10/2023, 10:20",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": 0.2,
+      "practical": 0.3,
+      "final": 0.3
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "MATH101", "name": "Đại số tuyến tính" },
+        { "code": "COMP1012", "name": "Cấu trúc Dữ liệu và Giải thuật" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Tìm kiếm Không gian Trạng thái & Bài toán Đối kháng",
+        "description": "BFS, DFS, A* Search, Heuristics, Thuật toán Cắt tỉa Alpha-Beta trong Game."
+      },
+      {
+        "chapter": 2,
+        "title": "Học máy Giám sát (Supervised Learning)",
+        "description": "Hồi quy tuyến tính, Logistic Regression, Cây quyết định, Random Forest, SVM."
+      },
+      {
+        "chapter": 3,
+        "title": "Học không giám sát & Đánh giá Mô hình",
+        "description": "K-Means Clustering, PCA giảm chiều dữ liệu, Confusion Matrix, ROC-AUC."
+      },
+      {
+        "chapter": 4,
+        "title": "Mạng Nơ-ron Sâu & Ứng dụng Gemini/LLM",
+        "description": "Perceptron đa tầng, Backpropagation, CNN, Transformer architecture và Prompt Engineering."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 15,
+      "exams": 7,
+      "labs": 8,
+      "projects": 5
+    }
+  },
+  {
+    "id": "comp1023",
+    "code": "COMP1023",
+    "name": "An toàn & Bảo mật Thông tin",
+    "englishName": "Information Security & Cryptography",
+    "category": "specialized",
+    "categoryName": "Môn học chuyên ngành",
+    "semester": "Học kỳ 6 (Năm 3)",
+    "credits": 3,
+    "theoryHours": 2,
+    "practicalHours": 1,
+    "description": "Mã hóa đối xứng (AES) và bất đối xứng (RSA), chữ ký số, chứng chỉ số X.509, bảo mật mạng và kỹ thuật phòng thủ tấn công Web.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1023-Security",
+    "lastUpdated": "19/10/2023, 17:10",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": 0.2,
+      "practical": 0.2,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1016", "name": "Mạng máy tính" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Cơ sở Mật mã học (Cryptography Fundamentals)",
+        "description": "Mã hóa cổ điển, Mã khối DES/AES, Chế độ hoạt động CBC/GCM."
+      },
+      {
+        "chapter": 2,
+        "title": "Mật mã Khóa công khai & Chữ ký số",
+        "description": "Thuật toán RSA, Trao đổi khóa Diffie-Hellman, Hàm băm mật mã (SHA-256), PKI."
+      },
+      {
+        "chapter": 3,
+        "title": "Bảo mật Giao thức & Mạng",
+        "description": "SSL/TLS Handshake, IPsec, VPN, Hệ thống phát hiện xâm nhập IDS/IPS."
+      },
+      {
+        "chapter": 4,
+        "title": "Bảo mật Ứng dụng & Kiểm thử Xâm nhập",
+        "description": "OWASP Top 10 (SQL Injection, XSS, CSRF, SSRF), công cụ Burp Suite và vá lỗ hổng."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 12,
+      "exams": 4,
+      "labs": 6,
+      "projects": 3
+    }
+  },
+  {
+    "id": "comp1031",
+    "code": "COMP1031",
+    "name": "Thị giác Máy tính (Tự chọn)",
+    "englishName": "Computer Vision",
+    "category": "elective",
+    "categoryName": "Môn học tự chọn",
+    "semester": "Học kỳ 6 (Năm 3)",
+    "credits": 3,
+    "theoryHours": 2,
+    "practicalHours": 1,
+    "description": "Xử lý ảnh kỹ thuật số số hóa, trích xuất đặc trưng SIFT/ORB, nhận diện vật thể YOLO và phân đoạn hình ảnh với OpenCV/PyTorch.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1031-ComputerVision",
+    "lastUpdated": "14/10/2023, 08:30",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": null,
+      "practical": 0.4,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1022", "name": "Trí tuệ Nhân tạo & Học máy" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Xử lý Ảnh cơ bản & Biến đổi Không gian",
+        "description": "Biến đổi cường độ sáng, Lọc không gian (Gaussian, Sobel), Phát hiện biên Canny."
+      },
+      {
+        "chapter": 2,
+        "title": "Trích xuất & Khớp đặc trưng Ảnh",
+        "description": "Harris Corner, SIFT, SURF, ORB, RANSAC trong ghép nối hình ảnh (Panorama)."
+      },
+      {
+        "chapter": 3,
+        "title": "Mạng Nơ-ron Tích chập trong Thị giác",
+        "description": "Kiến trúc VGG, ResNet, EfficientNet, Transfer Learning phân loại ảnh."
+      },
+      {
+        "chapter": 4,
+        "title": "Phát hiện Vật thể & Nhận diện Khuôn mặt",
+        "description": "Họ mô hình YOLO (v8/v11), Faster R-CNN, FaceNet và bài toán theo dõi chuyển động (Tracking)."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 11,
+      "exams": 3,
+      "labs": 7,
+      "projects": 4
+    }
+  },
+  {
+    "id": "comp1032",
+    "code": "COMP1032",
+    "name": "Xử lý Ngôn ngữ Tự nhiên (Tự chọn)",
+    "englishName": "Natural Language Processing",
+    "category": "elective",
+    "categoryName": "Môn học tự chọn",
+    "semester": "Học kỳ 6 (Năm 3)",
+    "credits": 3,
+    "theoryHours": 2,
+    "practicalHours": 1,
+    "description": "Mô hình ngôn ngữ xác suất, biểu diễn từ Word2Vec/BERT, xử lý tiếng Việt VnCoreNLP và xây dựng Chatbot RAG với LLM.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1032-NLP",
+    "lastUpdated": "11/10/2023, 14:20",
+    "gradingWeights": {
+      "process": 0.2,
+      "midterm": null,
+      "practical": 0.4,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1022", "name": "Trí tuệ Nhân tạo & Học máy" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Tiền xử lý Văn bản & Ngôn ngữ Tiếng Việt",
+        "description": "Tách từ (Word Segmentation), Gán nhãn từ loại (POS Tagging), TF-IDF và N-gram."
+      },
+      {
+        "chapter": 2,
+        "title": "Biểu diễn Từ & Nhúng Ngữ nghĩa (Word Embeddings)",
+        "description": "Word2Vec (Skip-gram, CBOW), GloVe, FastText trong tiếng Việt."
+      },
+      {
+        "chapter": 3,
+        "title": "Kiến trúc Transformer & Mô hình Ngôn ngữ Lớn",
+        "description": "Cơ chế Self-Attention, Multi-Head Attention, BERT, GPT, PhoBERT."
+      },
+      {
+        "chapter": 4,
+        "title": "Ứng dụng Chatbot RAG & Agentic Workflow",
+        "description": "Vector Database, Retrieval-Augmented Generation, Function Calling với Gemini API."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 14,
+      "exams": 4,
+      "labs": 6,
+      "projects": 4
+    }
+  },
+  {
+    "id": "comp1041",
+    "code": "COMP1041",
+    "name": "Đồ án Cơ sở Ngành",
+    "englishName": "Foundational Capstone Project",
+    "category": "capstone",
+    "categoryName": "Đồ án & Khóa luận tốt nghiệp",
+    "semester": "Học kỳ 4 (Năm 2)",
+    "credits": 2,
+    "theoryHours": 0,
+    "practicalHours": 2,
+    "description": "Phát triển phần mềm ứng dụng thực tế quy mô nhóm 2-3 sinh viên, áp dụng quy trình phát triển Agile/Scrum và báo cáo hội đồng khoa.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1041-Capstone1",
+    "lastUpdated": "22/10/2023, 10:00",
+    "gradingWeights": {
+      "process": 0.3,
+      "midterm": null,
+      "practical": 0.3,
+      "final": 0.4
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1011", "name": "Cơ sở dữ liệu" },
+        { "code": "COMP1013", "name": "Lập trình Hướng đối tượng" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Thu thập Yêu cầu & Thiết kế Hệ thống",
+        "description": "Biểu đồ UML (Use Case, Class, Sequence), thiết kế CSDL và kiến trúc phần mềm."
+      },
+      {
+        "chapter": 2,
+        "title": "Hiện thực Hóa Mã nguồn & Kiểm thử",
+        "description": "Quản lý mã nguồn với Git/GitHub, lập trình chức năng chính và viết Unit Test."
+      },
+      {
+        "chapter": 3,
+        "title": "Tài liệu Kỹ thuật & Báo cáo Hội đồng",
+        "description": "Soạn báo cáo đồ án chuẩn học thuật HCMUE và thuyết trình bảo vệ trước hội đồng."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 5,
+      "exams": 0,
+      "labs": 4,
+      "projects": 12
+    }
+  },
+  {
+    "id": "comp1044",
+    "code": "COMP1044",
+    "name": "Khóa luận Tốt nghiệp Cử nhân CNTT",
+    "englishName": "Bachelor Thesis in Computer Science",
+    "category": "capstone",
+    "categoryName": "Đồ án & Khóa luận tốt nghiệp",
+    "semester": "Học kỳ 8 (Năm 4)",
+    "credits": 6,
+    "theoryHours": 0,
+    "practicalHours": 6,
+    "description": "Nghiên cứu khoa học và phát triển hệ thống chuyên sâu dưới sự hướng dẫn trực tiếp của giảng viên khoa CNTT, bảo vệ trước Hội đồng chấm khóa luận cấp Khoa.",
+    "driveUrl": "https://drive.google.com/drive/folders/1HCMUE-FIT-COMP1044-Thesis",
+    "lastUpdated": "24/10/2023, 16:30",
+    "gradingWeights": {
+      "process": 0.3,
+      "midterm": null,
+      "practical": 0.2,
+      "final": 0.5
+    },
+    "prerequisites": {
+      "previousCourses": [
+        { "code": "COMP1021", "name": "Phát triển Web Nâng cao" },
+        { "code": "COMP1022", "name": "Trí tuệ Nhân tạo & Học máy" }
+      ],
+      "prerequisiteCourses": []
+    },
+    "syllabus": [
+      {
+        "chapter": 1,
+        "title": "Xác định Đề tài & Tổng quan Nghiên cứu",
+        "description": "Tổng quan các công trình liên quan (Literature Review), đặt bài toán và mục tiêu nghiên cứu."
+      },
+      {
+        "chapter": 2,
+        "title": "Đề xuất Giải pháp & Thuật toán",
+        "description": "Mô hình hóa giải pháp toán học/thuật toán, thiết kế kiến trúc hệ thống chuyên sâu."
+      },
+      {
+        "chapter": 3,
+        "title": "Hiện thực Thử nghiệm & Đánh giá Kết quả",
+        "description": "Xây dựng tập dữ liệu benchmark, chạy thực nghiệm so sánh với các baseline hiện có."
+      },
+      {
+        "chapter": 4,
+        "title": "Hoàn thiện Khóa luận & Phản biện Hội đồng",
+        "description": "Viết luận văn chuẩn định dạng ĐH Sư Phạm TP.HCM, chuẩn bị slide và bảo vệ trước hội đồng."
+      }
+    ],
+    "resourcesCount": {
+      "slides": 8,
+      "exams": 0,
+      "labs": 0,
+      "projects": 20
+    }
+  }
+]

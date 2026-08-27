@@ -1,0 +1,63 @@
+[
+  {
+    "id": "ann-1",
+    "title": "Kế hoạch tổ chức thi Kết thúc học phần Học kỳ 1 (Năm học 2025 - 2026)",
+    "type": "important",
+    "typeLabel": "QUAN TRỌNG",
+    "date": "24/10/2023",
+    "isoDate": "2023-10-24",
+    "summary": "Khoa Công nghệ Thông tin thông báo lịch thi chính thức các môn học đại cương, cơ sở ngành và chuyên ngành. Sinh viên kiểm tra phòng thi và mang theo thẻ sinh viên có dán ảnh hợp lệ.",
+    "linkText": "Xem lịch thi chi tiết →",
+    "linkUrl": "#",
+    "driveFolderLink": "https://drive.google.com/drive/folders/hcmue-fit-exam-schedule",
+    "author": "Văn phòng Khoa CNTT"
+  },
+  {
+    "id": "ann-2",
+    "title": "Cập nhật Kho tài liệu môn Cấu trúc Dữ liệu & Giải thuật (COMP1012)",
+    "type": "update",
+    "typeLabel": "CẬP NHẬT",
+    "date": "22/10/2023",
+    "isoDate": "2023-10-22",
+    "summary": "Đã bổ sung 15 bộ đề thi trắc nghiệm & tự luận kèm lời giải chi tiết qua các năm 2020-2024 từ Ban học tập Đoàn khoa FIT. Hỗ trợ ôn thi cuối kỳ hiệu quả.",
+    "linkText": "Truy cập thư mục đề thi →",
+    "linkUrl": "#",
+    "driveFolderLink": "https://drive.google.com/drive/folders/hcmue-fit-dsa-exams",
+    "author": "Ban Học tập & Nghiên cứu Khoa học"
+  },
+  {
+    "id": "ann-3",
+    "title": "Bảo trì định kỳ máy chủ Drive dữ liệu học tập lúc 00:00 ngày 28/10",
+    "type": "warning",
+    "typeLabel": "CẢNH BÁO",
+    "date": "20/10/2023",
+    "isoDate": "2023-10-20",
+    "summary": "Hệ thống đồng bộ dữ liệu đám mây sẽ tạm ngưng kết nối trong 2 giờ để nâng cấp băng thông đường truyền Google Workspace for Education. Các tài liệu đã lưu trên trình duyệt vẫn xem bình thường.",
+    "downtimeNotice": "Thời gian dự kiến: 00:00 - 02:00 (Chủ Nhật, 28/10/2023)",
+    "author": "Admin Kỹ thuật StudyVault"
+  },
+  {
+    "id": "ann-4",
+    "title": "Hội thảo: Ứng dụng Generative AI & Gemini trong Kỹ nghệ Phần mềm",
+    "type": "event",
+    "typeLabel": "SỰ KIỆN",
+    "date": "18/10/2023",
+    "isoDate": "2023-10-18",
+    "summary": "Workshop chuyên môn dành cho sinh viên Khoa CNTT với sự tham gia của các chuyên gia từ Google Developer Group Sài Gòn và cựu sinh viên HCMUE đang làm việc tại các tập đoàn công nghệ lớn.",
+    "linkText": "Đăng ký tham gia miễn phí →",
+    "linkUrl": "#",
+    "author": "Liên Chi Đoàn Khoa CNTT"
+  },
+  {
+    "id": "ann-5",
+    "title": "Phát động chiến dịch Đóng góp Đề thi & Mã nguồn Khóa luận 2024",
+    "type": "update",
+    "typeLabel": "CẬP NHẬT",
+    "date": "15/10/2023",
+    "isoDate": "2023-10-15",
+    "summary": "Nhằm xây dựng nguồn tài nguyên mở chất lượng cao, StudyVault mở đợt vinh danh Top người đóng góp tích cực nhất với các phần quà và giấy chứng nhận học thuật từ Khoa.",
+    "linkText": "Xem thể lệ đóng góp →",
+    "linkUrl": "/contribute",
+    "author": "Ban Điều hành StudyVault"
+  }
+]

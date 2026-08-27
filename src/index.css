@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, :is(.dark *)));
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --color-hcmue-blue: #124874;
+    --color-hcmue-red: #CF373D;
+    --bg-page: #f8fafc;
+    --bg-card: #ffffff;
+    --bg-sidebar: #ffffff;
+    --bg-inner: #f1f5f9;
+    --border-subtle: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #94a3b8;
+    --primary-brand: #4f46e5;
+  }
+
+  html.dark {
+    color-scheme: dark;
+    --color-hcmue-blue: #124874;
+    --color-hcmue-red: #CF373D;
+    --bg-page: #0b0f19;
+    --bg-card: #131b2e;
+    --bg-sidebar: #0e1424;
+    --bg-inner: #090e18;
+    --border-subtle: #1e293b;
+    --border-strong: #334155;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --primary-brand: #4f46e5;
+  }
+
+  body {
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    font-family: "Inter", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 15.5px;
+    line-height: 1.6;
+    letter-spacing: -0.011em;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  /* Custom sleek scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+
+  html.dark ::-webkit-scrollbar-thumb {
+    background: #1e293b;
+  }
+  html.dark ::-webkit-scrollbar-thumb:hover {
+    background: #334155;
+  }
+}
+
+/* Base utility classes for smooth animations and performance */
+.transition-theme {
+  /* Disabled transition to prevent stutter / thread blocking during instant theme toggles */
+  transition: none !important;
+}
+
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 80px;
+}
+
+.cv-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 56px;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.02); }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 3s ease-in-out infinite;
+}
