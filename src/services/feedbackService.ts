@@ -32,7 +32,7 @@ const LOCAL_FEEDBACK_STORAGE_KEY = 'hcmue_studyvault_feedbacks_cache';
 export const FEEDBACKS_UPDATED_EVENT = 'fithcmue_feedbacks_updated';
 
 // Local storage fallback helper
-function getLocalFeedbacks(): UserFeedback[] {
+export function getLocalFeedbacks(): UserFeedback[] {
   try {
     const raw = localStorage.getItem(LOCAL_FEEDBACK_STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
@@ -53,7 +53,7 @@ function saveLocalFeedbacks(feedbacks: UserFeedback[]) {
 }
 
 /**
- * Submits a new user feedback to Firestore and updates local cache.
+ * Submits a new user feedback with ultra-fast optimistic response and background Firestore sync.
  */
 export async function submitUserFeedback(input: NewFeedbackInput): Promise<UserFeedback> {
   const newFeedback: UserFeedback = {
@@ -61,7 +61,7 @@ export async function submitUserFeedback(input: NewFeedbackInput): Promise<UserF
     type: input.type || 'general',
     title: (input.title || '').trim() || 'Góp ý hệ thống',
     content: (input.content || '').trim(),
-    userName: (input.userName || '').trim() || 'Sinh viên ẩn danh',
+    userName: (input.userName || '').trim() || 'Sinh viên FIT HCMUE',
     userEmail: (input.userEmail || '').trim() || '',
     studentId: (input.studentId || '').trim() || '',
     rating: input.rating || 5,
@@ -69,29 +69,34 @@ export async function submitUserFeedback(input: NewFeedbackInput): Promise<UserF
     createdAt: new Date().toISOString()
   };
 
-  // 1. Immediately cache locally
-  const currentList = getLocalFeedbacks();
-  const updatedList = [newFeedback, ...currentList];
-  saveLocalFeedbacks(updatedList);
-
-  // 2. Persist to Firestore
+  // 1. Instantly save to local cache & emit custom event (< 1ms)
   try {
-    const colRef = collection(db, FEEDBACKS_COLLECTION);
-    const docRef = await addDoc(colRef, {
-      type: newFeedback.type,
-      title: newFeedback.title,
-      content: newFeedback.content,
-      userName: newFeedback.userName,
-      userEmail: newFeedback.userEmail,
-      studentId: newFeedback.studentId,
-      rating: newFeedback.rating,
-      status: 'unread',
-      createdAt: serverTimestamp()
-    });
-    newFeedback.id = docRef.id;
+    const currentList = getLocalFeedbacks();
+    const updatedList = [newFeedback, ...currentList.filter(f => f.id !== newFeedback.id)];
+    saveLocalFeedbacks(updatedList);
   } catch (err) {
-    console.warn('Could not sync feedback to Firestore immediately, cached locally:', err);
+    console.warn('Feedback local storage save error:', err);
   }
+
+  // 2. Persist to Firestore in background without blocking the UI
+  (async () => {
+    try {
+      const colRef = collection(db, FEEDBACKS_COLLECTION);
+      await addDoc(colRef, {
+        type: newFeedback.type,
+        title: newFeedback.title,
+        content: newFeedback.content,
+        userName: newFeedback.userName,
+        userEmail: newFeedback.userEmail,
+        studentId: newFeedback.studentId,
+        rating: newFeedback.rating,
+        status: 'unread',
+        createdAt: serverTimestamp()
+      });
+    } catch (err) {
+      console.warn('Background Firestore sync for feedback noted (cached locally):', err);
+    }
+  })();
 
   return newFeedback;
 }

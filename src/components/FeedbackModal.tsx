@@ -4,7 +4,9 @@ import {
   Bug,
   Send,
   CheckCircle2,
-  Loader2
+  Loader2,
+  Sparkles,
+  MessageSquarePlus
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { submitUserFeedback } from '../services/feedbackService';
@@ -18,6 +20,8 @@ interface FeedbackModalProps {
 export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose }) => {
   const { toast } = useToast();
   const [content, setContent] = useState('');
+  const [senderName, setSenderName] = useState('');
+  const [senderContact, setSenderContact] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
@@ -32,23 +36,26 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
 
     setIsSubmitting(true);
     try {
-      await submitUserFeedback({
-        type: 'bug',
-        title: 'Báo lỗi hệ thống từ người dùng',
+      // Instant submission (< 10ms)
+      submitUserFeedback({
+        type: 'general',
+        title: 'Báo lỗi / Góp ý hệ thống',
         content: content.trim(),
-        userName: 'Sinh viên FIT HCMUE',
+        userName: senderName.trim() || 'Sinh viên FIT HCMUE',
+        userEmail: senderContact.includes('@') ? senderContact.trim() : undefined,
+        studentId: !senderContact.includes('@') && senderContact.trim() ? senderContact.trim() : undefined,
         rating: 5
       });
 
       confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
       setIsSuccess(true);
-      toast.success('Cảm ơn bạn đã gửi báo lỗi!');
+      toast.success('Đã gửi phản hồi thành công!', 'Cảm ơn đóng góp quý báu của bạn cho StudyVault.');
 
       setTimeout(() => {
         setIsSuccess(false);
         setContent('');
         onClose();
-      }, 1500);
+      }, 1200);
     } catch (err: any) {
       toast.error('Không thể gửi báo lỗi', err?.message || 'Vui lòng thử lại sau.');
     } finally {
@@ -68,17 +75,17 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-3">
+        <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
             <Bug className="w-5 h-5 text-amber-400 shrink-0" />
             <h3 className="text-lg font-bold text-amber-400 tracking-tight">
-              Báo lỗi hệ thống
+              Báo lỗi / Góp ý hệ thống
             </h3>
           </div>
 
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
             title="Đóng"
           >
             <X className="w-5 h-5" />
@@ -92,56 +99,79 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
               <CheckCircle2 className="w-6 h-6 stroke-[2.5]" />
             </div>
             <h4 className="text-base font-bold text-white">
-              Đã gửi báo lỗi thành công!
+              Đã gửi phản hồi thành công!
             </h4>
             <p className="text-xs text-slate-400 max-w-xs mx-auto">
-              Cảm ơn đóng góp của bạn giúp nhóm phát triển hoàn thiện hệ thống tốt hơn.
+              Cảm ơn đóng góp của bạn giúp Ban Quản trị hoàn thiện hệ thống tốt hơn mỗi ngày.
             </p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="px-6 pb-6 space-y-4">
-            <p className="text-xs sm:text-[13px] text-slate-300 leading-relaxed">
-              Hệ thống có chỗ nào chưa tốt hoặc bạn gặp lỗi gì, hãy mô tả bên dưới để gửi phản hồi cho nhóm phát triển. Câu hỏi và câu trả lời gần nhất sẽ được gửi kèm để hỗ trợ kiểm tra.
-            </p>
-
-            <div className="space-y-2">
-              <label className="block text-sm font-bold text-white">
-                Mô tả vấn đề
+          <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+            <div className="space-y-1.5">
+              <label className="block text-xs font-bold text-slate-200">
+                Nội dung báo lỗi hoặc ý kiến góp ý <span className="text-rose-400">*</span>
               </label>
               <textarea
                 required
-                rows={5}
+                rows={4}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="VD: Các môn học chưa có tài liệu"
-                className="w-full p-3.5 rounded-xl bg-[#080d19] border border-amber-500/80 text-sm text-white placeholder:text-slate-500 focus:outline-hidden focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition resize-none"
+                placeholder="Mô tả chi tiết lỗi gặp phải, liên kết học liệu bị hỏng, hoặc đóng góp ý tưởng cải tiến hệ thống StudyVault..."
+                className="w-full p-3.5 rounded-xl bg-[#080d19] border border-amber-500/60 text-xs sm:text-sm text-white placeholder:text-slate-500 focus:outline-hidden focus:border-amber-400 focus:ring-1 focus:ring-amber-400 transition resize-none"
                 autoFocus
               />
             </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  Họ tên (không bắt buộc)
+                </label>
+                <input
+                  type="text"
+                  value={senderName}
+                  onChange={(e) => setSenderName(e.target.value)}
+                  placeholder="VD: Nguyễn Văn A"
+                  className="w-full px-3 py-2 rounded-xl bg-[#080d19] border border-slate-700 text-xs text-white placeholder:text-slate-500 focus:outline-hidden focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                  Email / MSSV (để phản hồi)
+                </label>
+                <input
+                  type="text"
+                  value={senderContact}
+                  onChange={(e) => setSenderContact(e.target.value)}
+                  placeholder="VD: 51.01.104.xxx hoặc email"
+                  className="w-full px-3 py-2 rounded-xl bg-[#080d19] border border-slate-700 text-xs text-white placeholder:text-slate-500 focus:outline-hidden focus:border-indigo-500"
+                />
+              </div>
+            </div>
+
             {/* Actions */}
-            <div className="pt-2 flex items-center justify-end gap-3">
+            <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-800/80">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-5 py-2 rounded-xl bg-[#232f45] hover:bg-[#2c3b57] text-white text-xs sm:text-sm font-semibold transition cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#232f45] hover:bg-[#2c3b57] text-slate-300 text-xs font-semibold transition cursor-pointer"
               >
                 Hủy
               </button>
               <button
                 type="submit"
                 disabled={isSubmitting || !content.trim()}
-                className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm flex items-center gap-2 shadow-md shadow-amber-500/20 transition cursor-pointer disabled:opacity-50"
+                className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-2 shadow-md shadow-amber-500/20 transition cursor-pointer disabled:opacity-50 active:scale-95"
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     <span>Đang gửi...</span>
                   </>
                 ) : (
                   <>
-                    <Send className="w-4 h-4" />
-                    <span>Gửi báo lỗi</span>
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Gửi phản hồi</span>
                   </>
                 )}
               </button>

@@ -45,8 +45,11 @@ import {
   Lightbulb,
   Bug,
   Activity,
-  ZapOff
+  ZapOff,
+  Copy,
+  CheckCheck
 } from 'lucide-react';
+import subjectsData from '../data/subjects.json';
 import {
   FirestoreContribution,
   fetchAllContributions,
@@ -63,12 +66,14 @@ import {
 import {
   Announcement,
   AnnouncementType,
-  Contributor
+  Contributor,
+  Subject
 } from '../types';
 import {
   fetchAnnouncements,
   saveAnnouncement,
   deleteAnnouncement,
+  getStoredAnnouncements,
   ANNOUNCEMENTS_UPDATED_EVENT
 } from '../services/announcementService';
 import {
@@ -76,13 +81,22 @@ import {
   fetchAllFeedbacks,
   updateFeedbackStatus,
   deleteFeedback,
+  getLocalFeedbacks,
   FEEDBACKS_UPDATED_EVENT
 } from '../services/feedbackService';
 import {
   CONTRIBUTIONS_UPDATED_EVENT,
   CONTRIBUTORS_UPDATED_EVENT,
-  getStoredContributors
+  getStoredContributors,
+  getLocalCachedSubmissions
 } from '../utils/contributorStorage';
+import {
+  DEFAULT_FORM_RESPONSES_URL,
+  getActiveFormSheetId,
+  setActiveFormSheetId,
+  syncGoogleFormResponsesToContributions,
+  FormSyncResult
+} from '../services/formResponsesSyncService';
 import { matchesSearchQuery } from '../utils/studentIdUtils';
 import { useToast } from '../context/ToastContext';
 import { useGoogleSheet } from '../context/GoogleSheetContext';
@@ -96,6 +110,15 @@ interface AdminPageProps {
 
 export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const { toast } = useToast();
+
+  // Helper to get subject name from subject code
+  const getSubjectNameByCode = (code: string): string => {
+    if (!code) return '';
+    const allSubjects = subjectsData as Subject[];
+    const found = allSubjects.find((s) => s.code.toUpperCase() === code.toUpperCase());
+    return found ? found.name : '';
+  };
+
   const {
     sheetRecords,
     isSyncing: isContextSyncing,
@@ -135,12 +158,29 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [errorLogs, setErrorLogs] = useState<AppErrorLog[]>(() => errorLogger.getLogs());
 
   // Moderation state
-  const [contributions, setContributions] = useState<FirestoreContribution[]>([]);
+  const [contributions, setContributions] = useState<FirestoreContribution[]>(() => getLocalCachedSubmissions());
   const [isLoadingContribs, setIsLoadingContribs] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [actionProcessingId, setActionProcessingId] = useState<string | null>(null);
   const [moderationSubTab, setModerationSubTab] = useState<'submissions' | 'leaderboard_manage'>('submissions');
+
+  // Manual Refresh & Sync state
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  });
+
+  // Google Form Sync State
+  const [isSyncingFormResponses, setIsSyncingFormResponses] = useState(false);
+  const [formSheetUrlInput, setFormSheetUrlInput] = useState<string>(() => {
+    const id = getActiveFormSheetId();
+    return `https://docs.google.com/spreadsheets/d/${id}/edit?usp=sharing`;
+  });
+  const [isEditingFormUrl, setIsEditingFormUrl] = useState(false);
+  const [formSyncSummary, setFormSyncSummary] = useState<FormSyncResult | null>(null);
+  const [isFormGuideModalOpen, setIsFormGuideModalOpen] = useState(false);
 
   // Leaderboard Direct Manager State
   const [leaderboardList, setLeaderboardList] = useState<Contributor[]>(() => getStoredContributors());
@@ -168,14 +208,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [inlineFilesCount, setInlineFilesCount] = useState<number>(1);
 
   // Feedback State
-  const [feedbacks, setFeedbacks] = useState<UserFeedback[]>([]);
+  const [feedbacks, setFeedbacks] = useState<UserFeedback[]>(() => getLocalFeedbacks());
   const [isLoadingFeedbacks, setIsLoadingFeedbacks] = useState(false);
   const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'unread' | 'read' | 'resolved'>('all');
   const [feedbackSearchQuery, setFeedbackSearchQuery] = useState('');
   const [feedbackProcessingId, setFeedbackProcessingId] = useState<string | null>(null);
 
   // Announcements state
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>(() => getStoredAnnouncements());
   const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(false);
   const [isAnnouncementModalOpen, setIsAnnouncementModalOpen] = useState(false);
   const [editingAnnouncement, setEditingAnnouncement] = useState<Announcement | null>(null);
@@ -194,14 +234,150 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [customSheetUrlInput, setCustomSheetUrlInput] = useState('');
   const [isEditingSheetUrl, setIsEditingSheetUrl] = useState(false);
 
-  // Reject Mail Modal
-  const [rejectedMailModal, setRejectedMailModal] = useState<{
-    isOpen: boolean;
-    studentName: string;
-    studentEmail: string;
-    subjectCode: string;
-    reason: string;
-  } | null>(null);
+  // Reject & Rejection Email Modal State
+  interface RejectModalState {
+    item: FirestoreContribution;
+    presetKey: string;
+    customReason: string;
+    copied: boolean;
+  }
+  const [rejectModalData, setRejectModalData] = useState<RejectModalState | null>(null);
+  const [isRejecting, setIsRejecting] = useState(false);
+
+  // Rejection Presets
+  const REJECTION_PRESETS = [
+    {
+      id: 'duplicate',
+      label: 'Tài liệu đã có trong kho',
+      text: 'Tài liệu đã có sẵn trong kho học liệu HCMUE-FIT StudyVault hoặc đã được đóng góp trước đó.'
+    },
+    {
+      id: 'incompatible',
+      label: 'Tài liệu không phù hợp',
+      text: 'Nội dung tài liệu chưa phù hợp với đề cương hoặc chương trình học phần hiện hành của Khoa CNTT.'
+    },
+    {
+      id: 'quality',
+      label: 'Lỗi file / Link bị khóa quyền',
+      text: 'File tài liệu bị lỗi hiển thị, chất lượng scan/chụp mờ hoặc link Google Drive chưa được mở quyền truy cập công khai.'
+    },
+    {
+      id: 'incomplete',
+      label: 'Tài liệu chưa đủ nội dung',
+      text: 'Tài liệu chưa hoàn thiện đầy đủ nội dung hoặc thiếu thông tin định danh học phần cần thiết.'
+    },
+    {
+      id: 'custom',
+      label: 'Lý do tùy chỉnh khác',
+      text: ''
+    }
+  ];
+
+  // Parallel Fast Data Loading
+  const loadAllAdminData = async () => {
+    setIsLoadingContribs(true);
+    setIsLoadingLeaderboard(true);
+    setIsLoadingAnnouncements(true);
+    setIsLoadingFeedbacks(true);
+
+    try {
+      const [contribsRes, leaderboardRes, annRes, feedbacksRes] = await Promise.allSettled([
+        fetchAllContributions(),
+        fetchContributorsFromFirestore(),
+        fetchAnnouncements(),
+        fetchAllFeedbacks()
+      ]);
+
+      if (contribsRes.status === 'fulfilled') {
+        setContributions(contribsRes.value);
+      }
+      if (leaderboardRes.status === 'fulfilled') {
+        setLeaderboardList(leaderboardRes.value);
+      }
+      if (annRes.status === 'fulfilled') {
+        setAnnouncements(annRes.value);
+      }
+      if (feedbacksRes.status === 'fulfilled') {
+        setFeedbacks(feedbacksRes.value);
+      }
+
+      const d = new Date();
+      setLastRefreshedAt(`${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`);
+    } catch {
+      toast.error('Lỗi kết nối', 'Không thể đồng bộ toàn bộ dữ liệu quản trị.');
+    } finally {
+      setIsLoadingContribs(false);
+      setIsLoadingLeaderboard(false);
+      setIsLoadingAnnouncements(false);
+      setIsLoadingFeedbacks(false);
+    }
+  };
+
+  // Manual Trigger Refresh All with Animation & Toast
+  const handleManualRefreshAll = async () => {
+    setIsRefreshingAll(true);
+    try {
+      const [contribsRes, leaderboardRes, annRes, feedbacksRes] = await Promise.allSettled([
+        fetchAllContributions(),
+        fetchContributorsFromFirestore(),
+        fetchAnnouncements(),
+        fetchAllFeedbacks()
+      ]);
+
+      if (contribsRes.status === 'fulfilled') {
+        setContributions(contribsRes.value);
+      }
+      if (leaderboardRes.status === 'fulfilled') {
+        setLeaderboardList(leaderboardRes.value);
+      }
+      if (annRes.status === 'fulfilled') {
+        setAnnouncements(annRes.value);
+      }
+      if (feedbacksRes.status === 'fulfilled') {
+        setFeedbacks(feedbacksRes.value);
+      }
+
+      const d = new Date();
+      const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+      setLastRefreshedAt(timeStr);
+      toast.success('Đã làm mới dữ liệu!', `Cập nhật thành công lúc ${timeStr}`);
+    } catch (err: any) {
+      toast.error('Lỗi làm mới', err?.message || 'Không thể cập nhật dữ liệu quản trị.');
+    } finally {
+      setIsRefreshingAll(false);
+    }
+  };
+
+  // Google Form Responses Sync Handler
+  const handleSyncGoogleForm = async () => {
+    setIsSyncingFormResponses(true);
+    try {
+      const res = await syncGoogleFormResponsesToContributions(formSheetUrlInput);
+      setFormSyncSummary(res);
+
+      // Refresh contributions list
+      const updatedContribs = await fetchAllContributions();
+      setContributions(updatedContribs);
+
+      if (res.newImported > 0) {
+        toast.success(
+          'Đồng bộ Google Form thành công!',
+          `Đã nhập ${res.newImported} tài liệu mới vào hàng đợi duyệt (${res.alreadyExisted} bản ghi đã có sẵn).`
+        );
+      } else if (res.totalInSheet > 0) {
+        toast.info(
+          'Đã kiểm tra Google Form',
+          `Tất cả ${res.totalInSheet} phản hồi trong Google Sheet đã được đồng bộ trước đó.`
+        );
+      } else {
+        toast.warning('Google Form chưa có phản hồi nào mới.');
+      }
+    } catch (err: any) {
+      toast.error('Lỗi đồng bộ Google Form', err?.message || 'Không thể kết nối đến Google Spreadsheet.');
+    } finally {
+      setIsSyncingFormResponses(false);
+    }
+  };
 
   // Data Loading
   const loadContributions = async () => {
@@ -254,10 +430,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     if (isAuthenticated) {
-      loadContributions();
-      loadLeaderboard();
-      loadAnnouncements();
-      loadFeedbacks();
+      loadAllAdminData();
 
       const handleContribUpdate = () => loadContributions();
       const handleAnnUpdate = () => loadAnnouncements();
@@ -303,7 +476,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       if (result.success) {
         setIsAuthenticated(true);
         setPasswordInput('');
-        toast.success('Đăng nhập thành công', 'Chào mừng Quản trị viên vào Bàn điều hành!');
+        toast.success('Đăng nhập thành công', 'Chào mừng Quản trị viên vào Ban điều hành!');
       } else {
         const errorMsg = result.message || 'Mật khẩu không chính xác! Vui lòng kiểm tra lại.';
         setAuthError(errorMsg);
@@ -371,16 +544,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     const count = Math.max(1, filesCountToCredit);
 
     try {
-      await approveContribution(item, 'Admin Khoa CNTT', count);
-      toast.success(
-        'Đã duyệt tài liệu thành công!',
-        `Đã công nhận ${count} tài liệu cho ${item.contributorName}.`
-      );
+      // 1. Instant optimistic update in local state
       setContributions((prev) =>
-        prev.map((c) => (c.id === item.id ? { ...c, status: 'approved', filesCount: count } : c))
+        prev.map((c) => (c.id === item.id ? { ...c, status: 'approved', filesCount: count, approvedAt: new Date().toISOString() } : c))
       );
       setApproveModalItem(null);
-      loadLeaderboard();
+
+      // 2. Perform approve in Firestore and recalculate Leaderboard
+      await approveContribution(item, 'Admin Khoa CNTT', count);
+      
+      // 3. Immediately refresh local Leaderboard state
+      const updatedLeaderboard = getStoredContributors();
+      setLeaderboardList(updatedLeaderboard);
+
+      toast.success(
+        'Đã duyệt tài liệu thành công!',
+        `Đã công nhận ${count} tài liệu cho ${item.contributorName} và cập nhật Bảng Xếp Hạng.`
+      );
     } catch {
       toast.error('Lỗi phê duyệt', 'Không thể cập nhật trạng thái');
     } finally {
@@ -398,7 +578,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         prev.map((c) => (c.id === item.id ? { ...c, filesCount: safeCount } : c))
       );
       setInlineEditingId(null);
-      loadLeaderboard();
+      const updated = getStoredContributors();
+      setLeaderboardList(updated);
     } catch {
       toast.error('Lỗi cập nhật', 'Không thể lưu số lượng mới');
     } finally {
@@ -406,29 +587,104 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const handleReject = async (item: FirestoreContribution) => {
-    const defaultReason = 'Xin lỗi vì tài liệu không phù hợp hoặc đã có trong kho học liệu.';
-    const reason = window.prompt('Nội dung phản hồi từ chối gửi đến sinh viên:', defaultReason);
-    if (reason === null) return;
+  // Open Rejection Modal
+  const handleOpenRejectModal = (item: FirestoreContribution) => {
+    setRejectModalData({
+      item,
+      presetKey: 'duplicate',
+      customReason: 'Tài liệu đã có sẵn trong kho học liệu HCMUE-FIT StudyVault hoặc đã được đóng góp trước đó.',
+      copied: false
+    });
+  };
 
+  // Compute effective rejection reason and apology email content
+  const getEffectiveRejectionReason = (state: RejectModalState) => {
+    if (state.presetKey === 'custom') {
+      return state.customReason.trim() || 'Tài liệu chưa phù hợp với yêu cầu của kho học liệu.';
+    }
+    const preset = REJECTION_PRESETS.find((p) => p.id === state.presetKey);
+    return state.customReason.trim() || preset?.text || 'Tài liệu không phù hợp hoặc đã xuất hiện trong kho.';
+  };
+
+  const generateRejectionEmail = (item: FirestoreContribution, reasonText: string) => {
+    const subjectName = item.targetSubjectName || item.customSubjectName || getSubjectNameByCode(item.targetSubjectCode) || 'Học phần';
+    const subjectLine = `[HCMUE-FIT StudyVault] Phản hồi đóng góp tài liệu môn [${item.targetSubjectCode}] ${subjectName}`;
+    const studentName = item.contributorName || 'bạn';
+
+    const bodyText = `Kính gửi ${studentName},
+
+Ban Quản trị Kho học liệu CNTT (HCMUE-FIT StudyVault) xin chân thành cảm ơn bạn đã quan tâm và gửi tài liệu đóng góp cho học phần [${item.targetSubjectCode}] ${subjectName}.
+
+Sau khi rà soát và kiểm duyệt, Ban Quản trị rất tiếc phải thông báo rằng tài liệu này chưa thể được phê duyệt vào kho học liệu chung với lý do:
+👉 "${reasonText}"
+
+Ban Quản trị rất trân trọng tinh thần học tập, chia sẻ và cống hiến vì cộng đồng sinh viên Khoa Công nghệ Thông tin - Trường Đại học Sư phạm TP.HCM. Rất mong sẽ tiếp tục nhận được những tài liệu học tập bổ ích khác từ bạn trong tương lai!
+
+Chúc bạn luôn có những kỳ học thành công và đạt kết quả xuất sắc!
+
+Trân trọng,
+Ban Quản trị HCMUE-FIT StudyVault
+Khoa Công nghệ Thông tin - Trường ĐH Sư phạm TP.HCM
+Website: https://fit-hcmue-studyvault.web.app`;
+
+    return {
+      toEmail: item.email || '',
+      subjectLine,
+      bodyText
+    };
+  };
+
+  // Perform Rejection Action
+  const handleConfirmReject = async (sendMailClient: boolean) => {
+    if (!rejectModalData) return;
+    const { item } = rejectModalData;
+    const reasonText = getEffectiveRejectionReason(rejectModalData);
+    const { toEmail, subjectLine, bodyText } = generateRejectionEmail(item, reasonText);
+
+    setIsRejecting(true);
     setActionProcessingId(item.id);
+
     try {
-      await rejectContribution(item.id, reason);
+      // 1. Optimistic update
       setContributions((prev) =>
-        prev.map((c) => (c.id === item.id ? { ...c, status: 'rejected', adminFeedback: reason } : c))
+        prev.map((c) => (c.id === item.id ? { ...c, status: 'rejected', adminFeedback: reasonText } : c))
       );
-      setRejectedMailModal({
-        isOpen: true,
-        studentName: item.contributorName,
-        studentEmail: item.email,
-        subjectCode: item.targetSubjectCode,
-        reason: reason
-      });
-      toast.info('Đã từ chối tài liệu', `Đã cập nhật trạng thái từ chối.`);
+
+      // 2. Reject in backend
+      await rejectContribution(item.id, reasonText);
+
+      // 3. Open mailto client if requested and email exists
+      if (sendMailClient && toEmail) {
+        const mailtoUrl = `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subjectLine)}&body=${encodeURIComponent(bodyText)}`;
+        window.location.href = mailtoUrl;
+      }
+
+      toast.info('Đã từ chối tài liệu', 'Đã lưu lý do phản hồi và cập nhật trạng thái.');
+      setRejectModalData(null);
     } catch {
-      toast.error('Lỗi xử lý', 'Không thể cập nhật trạng thái');
+      toast.error('Lỗi xử lý', 'Không thể cập nhật trạng thái từ chối.');
     } finally {
+      setIsRejecting(false);
       setActionProcessingId(null);
+    }
+  };
+
+  // Copy rejection email body
+  const handleCopyRejectionEmail = async () => {
+    if (!rejectModalData) return;
+    const reasonText = getEffectiveRejectionReason(rejectModalData);
+    const { bodyText } = generateRejectionEmail(rejectModalData.item, reasonText);
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(bodyText);
+        setRejectModalData((prev) => (prev ? { ...prev, copied: true } : null));
+        toast.success('Đã sao chép nội dung email', 'Bạn có thể dán vào Gmail hoặc hòm thư để gửi cho sinh viên.');
+        setTimeout(() => {
+          setRejectModalData((prev) => (prev ? { ...prev, copied: false } : null));
+        }, 3000);
+      }
+    } catch {
+      toast.error('Lỗi sao chép', 'Không thể sao chép văn bản vào clipboard.');
     }
   };
 
@@ -450,8 +706,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const handleQuickAdjustContributorFiles = async (studentIdOrId: string, name: string, delta: number) => {
     try {
       await adjustContributorFilesCount(studentIdOrId, delta, 0);
+      const updated = getStoredContributors();
+      setLeaderboardList(updated);
       toast.success('Cập nhật BXH thành công', `${delta > 0 ? `+${delta}` : delta} tài liệu cho ${name}.`);
-      loadLeaderboard();
     } catch {
       toast.error('Lỗi cập nhật BXH', 'Không thể điều chỉnh điểm số');
     }
@@ -462,7 +719,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     if (!editingContributor) return;
 
     try {
-      const updated = await updateContributorRecord(editingContributor.studentId || editingContributor.id, {
+      const updated = await updateContributorRecord(editingContributor.id || editingContributor.studentId, {
         name: editingContributor.name,
         className: editingContributor.className,
         studentId: editingContributor.studentId,
@@ -473,12 +730,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         email: editingContributor.email
       });
 
-      if (updated) {
-        toast.success('Đã cập nhật BXH', `Hồ sơ của ${updated.name} đã được cập nhật.`);
-        setEditingContributor(null);
-        loadLeaderboard();
-      }
-    } catch {
+      const updatedList = getStoredContributors();
+      setLeaderboardList(updatedList);
+      toast.success('Đã lưu thông tin sinh viên', `Hồ sơ vinh danh của ${updated?.name || editingContributor.name} đã được cập nhật thành công.`);
+      setEditingContributor(null);
+    } catch (err: any) {
+      console.error('Lỗi khi lưu thông tin sinh viên:', err);
       toast.error('Lỗi cập nhật', 'Không thể lưu thông tin sinh viên');
     }
   };
@@ -502,6 +759,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         specialty: newContributorForm.specialty.trim() || 'Chuyên đề Công nghệ'
       });
 
+      const updatedList = getStoredContributors();
+      setLeaderboardList(updatedList);
       toast.success('Đã thêm sinh viên', `Đã vinh danh ${created.name} lên Bảng Xếp Hạng.`);
       setIsAddContributorModalOpen(false);
       setNewContributorForm({
@@ -514,7 +773,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
         badgeTitle: 'Đóng góp viên Tích cực',
         specialty: 'Chuyên đề Công nghệ'
       });
-      loadLeaderboard();
     } catch {
       toast.error('Lỗi thêm mới', 'Không thể thêm sinh viên vào BXH');
     }
@@ -524,8 +782,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     if (!window.confirm(`Bạn có chắc chắn muốn xóa ${name} khỏi Bảng Xếp Hạng?`)) return;
     try {
       await deleteContributorFromLeaderboard(studentIdOrId);
+      const updatedList = getStoredContributors();
+      setLeaderboardList(updatedList);
       toast.info('Đã xóa', `Đã xóa ${name} khỏi BXH`);
-      loadLeaderboard();
     } catch {
       toast.error('Lỗi xóa', 'Không thể xóa sinh viên');
     }
@@ -676,7 +935,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             <Lock className="w-6 h-6" />
           </div>
           <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-            Bàn Điều Hành Quản Trị
+            Ban Điều Hành Quản Trị
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             Nhập mật khẩu quản trị để mở quyền quản lý hệ thống.
@@ -714,7 +973,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
             disabled={isLoggingIn || !passwordInput.trim()}
             className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-md transition cursor-pointer disabled:opacity-50"
           >
-            {isLoggingIn ? 'Đang xác thực...' : 'Đăng nhập vào Bàn điều hành'}
+            {isLoggingIn ? 'Đang xác thực...' : 'Đăng nhập vào Ban điều hành'}
           </button>
         </form>
 
@@ -741,7 +1000,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white">
-                Bàn Điều Hành Quản Trị
+                Ban Điều Hành Quản Trị
               </h1>
               <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
                 FIT HCMUE
@@ -753,7 +1012,21 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleManualRefreshAll}
+            disabled={isRefreshingAll}
+            className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition cursor-pointer active:scale-95 disabled:opacity-50"
+            title="Tải lại toàn bộ dữ liệu quản trị ngay lập tức"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingAll ? 'animate-spin' : ''}`} />
+            <span>{isRefreshingAll ? 'Đang làm mới...' : 'Làm mới dữ liệu'}</span>
+          </button>
+          {lastRefreshedAt && (
+            <span className="hidden sm:inline-block px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 text-[10px] font-mono border border-slate-200 dark:border-slate-800" title="Thời gian làm mới gần nhất">
+              {lastRefreshedAt}
+            </span>
+          )}
           <button
             onClick={() => onNavigate('/')}
             className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
@@ -1016,6 +1289,99 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
           {/* Submissions Section */}
           {moderationSubTab === 'submissions' && (
             <div className="space-y-4">
+              {/* Google Form Responses Sync Banner & Controls */}
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/30 via-indigo-950/20 to-purple-950/30 border border-emerald-500/30 dark:border-emerald-500/20 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                      <FileSpreadsheet className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+                        <span>Đồng bộ đóng góp từ Google Form</span>
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                          Auto Parser & BXH Sync
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Tự động trích xuất phản hồi gửi từ Google Form, bóc tách môn học, MSSV và chuyển vào hàng đợi duyệt tài liệu
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Form URL display & inline edit */}
+                  <div className="pt-0.5 flex items-center gap-2 text-xs flex-wrap">
+                    {isEditingFormUrl ? (
+                      <div className="flex items-center gap-2 w-full max-w-xl">
+                        <input
+                          type="text"
+                          value={formSheetUrlInput}
+                          onChange={(e) => setFormSheetUrlInput(e.target.value)}
+                          className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-[#0c1220] border border-emerald-500/50 text-xs text-slate-900 dark:text-white"
+                          placeholder="Dán link Google Sheet Form Responses..."
+                        />
+                        <button
+                          onClick={() => {
+                            setActiveFormSheetId(formSheetUrlInput);
+                            setIsEditingFormUrl(false);
+                            toast.success('Đã lưu cấu hình Google Form Sheet!');
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer"
+                        >
+                          Lưu
+                        </button>
+                        <button
+                          onClick={() => setIsEditingFormUrl(false)}
+                          className="px-2.5 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs transition cursor-pointer"
+                        >
+                          Hủy
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400 flex-wrap">
+                        <span className="font-semibold text-[11px] text-slate-500 dark:text-slate-400">Google Sheet phản hồi:</span>
+                        <a
+                          href={formSheetUrlInput}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-emerald-600 dark:text-emerald-400 font-mono text-[11px] hover:underline flex items-center gap-1 truncate max-w-xs sm:max-w-md"
+                          title={formSheetUrlInput}
+                        >
+                          <span className="truncate">{formSheetUrlInput}</span>
+                          <ExternalLink className="w-3 h-3 shrink-0" />
+                        </a>
+                        <button
+                          onClick={() => setIsEditingFormUrl(true)}
+                          className="text-[11px] text-indigo-500 hover:text-indigo-400 font-medium underline cursor-pointer"
+                        >
+                          Đổi link Sheet
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  <button
+                    onClick={() => setIsFormGuideModalOpen(true)}
+                    className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800/90 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-slate-200 dark:border-slate-700/60"
+                    title="Xem quy trình bóc tách logic và cập nhật BXH"
+                  >
+                    <Lightbulb className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Hướng dẫn logic BXH</span>
+                  </button>
+
+                  <button
+                    onClick={handleSyncGoogleForm}
+                    disabled={isSyncingFormResponses}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 shadow-md shadow-emerald-600/20 transition cursor-pointer active:scale-95 disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isSyncingFormResponses ? 'animate-spin' : ''}`} />
+                    <span>{isSyncingFormResponses ? 'Đang đồng bộ Form...' : 'Đồng bộ từ Google Form'}</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Search Bar */}
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1099,7 +1465,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                                   <span>Phê duyệt</span>
                                 </button>
                                 <button
-                                  onClick={() => handleReject(item)}
+                                  onClick={() => handleOpenRejectModal(item)}
                                   disabled={actionProcessingId === item.id}
                                   className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer active:scale-95 disabled:opacity-50"
                                 >
@@ -1107,6 +1473,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                                   <span>Từ chối</span>
                                 </button>
                               </>
+                            )}
+                            {item.status === 'rejected' && (
+                              <button
+                                onClick={() => handleOpenRejectModal(item)}
+                                disabled={actionProcessingId === item.id}
+                                className="px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
+                                title="Xem nội dung thư phản hồi từ chối"
+                              >
+                                <Mail className="w-3.5 h-3.5" />
+                                <span>Thư phản hồi</span>
+                              </button>
                             )}
                             <button
                               onClick={() => handleDeleteContribution(item.id)}
@@ -1860,6 +2237,280 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: Hộp thoại Từ chối & Gửi Email Phản hồi / Xin lỗi */}
+      {rejectModalData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-white dark:bg-[#131b2e] border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl space-y-5 my-8 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 flex items-center justify-center text-rose-600 dark:text-rose-400">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    {rejectModalData.item.status === 'rejected' ? 'Thư phản hồi từ chối tài liệu' : 'Từ chối tài liệu & Gửi thư phản hồi'}
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Phản hồi lịch sự, xin lỗi và nêu rõ lý do không thể tiếp nhận tài liệu
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRejectModalData(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Scrollable Body */}
+            <div className="space-y-4 overflow-y-auto pr-1 flex-1 text-xs">
+              {/* Contributor Info Card */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#0c1220] border border-slate-200/80 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-700 dark:text-slate-300">
+                <div>
+                  <span className="text-slate-400">Sinh viên: </span>
+                  <strong className="text-slate-900 dark:text-white">{rejectModalData.item.contributorName}</strong> ({rejectModalData.item.studentId || 'Chưa rõ MSSV'})
+                </div>
+                <div>
+                  <span className="text-slate-400">Email: </span>
+                  <span className="font-mono text-indigo-600 dark:text-indigo-400">{rejectModalData.item.email || 'Chưa cung cấp email'}</span>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-slate-400">Học phần: </span>
+                  <strong className="text-slate-900 dark:text-white">[{rejectModalData.item.targetSubjectCode}] {rejectModalData.item.targetSubjectName || rejectModalData.item.customSubjectName || getSubjectNameByCode(rejectModalData.item.targetSubjectCode)}</strong>
+                </div>
+              </div>
+
+              {/* Presets Selection */}
+              <div className="space-y-2">
+                <label className="font-bold text-slate-800 dark:text-slate-200">
+                  Chọn lý do từ chối chính:
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {REJECTION_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() =>
+                        setRejectModalData((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                presetKey: preset.id,
+                                customReason: preset.id === 'custom' ? '' : preset.text
+                              }
+                            : null
+                        )
+                      }
+                      className={`p-3 rounded-xl text-left border transition-all cursor-pointer flex items-start gap-2.5 ${
+                        rejectModalData.presetKey === preset.id
+                          ? 'bg-rose-50/70 dark:bg-rose-950/40 border-rose-400 dark:border-rose-700 text-rose-900 dark:text-rose-200 shadow-xs'
+                          : 'bg-white dark:bg-[#131b2e] border-slate-200 dark:border-slate-700 hover:border-slate-300 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 ${
+                        rejectModalData.presetKey === preset.id
+                          ? 'border-rose-600 bg-rose-600 text-white'
+                          : 'border-slate-300 dark:border-slate-600'
+                      }`}>
+                        {rejectModalData.presetKey === preset.id && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </div>
+                      <span className="font-semibold text-xs leading-tight">{preset.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Custom reason / Note edit */}
+              <div className="space-y-1.5">
+                <label className="font-bold text-slate-800 dark:text-slate-200">
+                  Chi tiết lý do phản hồi (sẽ hiển thị trực tiếp trong thư gửi sinh viên):
+                </label>
+                <textarea
+                  rows={2}
+                  value={rejectModalData.customReason}
+                  onChange={(e) => {
+                    const text = e.target.value;
+                    setRejectModalData((prev) => (prev ? { ...prev, customReason: text } : null));
+                  }}
+                  placeholder="Nhập chi tiết lý do từ chối hoặc hướng dẫn bổ sung cho sinh viên..."
+                  className="w-full p-3 rounded-xl bg-slate-50 dark:bg-[#0c1220] border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:border-rose-500"
+                />
+              </div>
+
+              {/* Live Email Preview */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-indigo-500" />
+                    <span>Xem trước nội dung email phản hồi:</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyRejectionEmail}
+                    className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/80 hover:bg-indigo-100 text-indigo-600 dark:text-indigo-400 font-semibold flex items-center gap-1 transition cursor-pointer"
+                  >
+                    {rejectModalData.copied ? (
+                      <>
+                        <CheckCheck className="w-3.5 h-3.5 text-emerald-500" />
+                        <span className="text-emerald-600 dark:text-emerald-400">Đã sao chép!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>Sao chép nội dung email</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-slate-900 text-slate-200 font-mono text-[11px] leading-relaxed whitespace-pre-wrap select-all border border-slate-800 max-h-48 overflow-y-auto">
+                  {generateRejectionEmail(rejectModalData.item, getEffectiveRejectionReason(rejectModalData)).bodyText}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-800 shrink-0">
+              <button
+                type="button"
+                onClick={() => setRejectModalData(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Đóng
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCopyRejectionEmail}
+                  className="px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Sao chép</span>
+                </button>
+
+                {rejectModalData.item.email && (
+                  <button
+                    type="button"
+                    disabled={isRejecting}
+                    onClick={() => handleConfirmReject(true)}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50"
+                    title="Mở ứng dụng thư điện tử để gửi phản hồi và cập nhật từ chối"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Gửi Mail & Lưu</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  disabled={isRejecting}
+                  onClick={() => handleConfirmReject(false)}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer disabled:opacity-50"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                  <span>{isRejecting ? 'Đang xử lý...' : 'Xác nhận Từ chối'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Google Form & Leaderboard Sync Logic Guide Modal */}
+      {isFormGuideModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150 overflow-y-auto">
+          <div className="bg-white dark:bg-[#131b2e] rounded-3xl border border-slate-200 dark:border-slate-800 max-w-2xl w-full p-6 space-y-5 shadow-2xl my-8">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-emerald-500">
+                  <Lightbulb className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    Quy trình xử lý Google Form & Cập nhật BXH
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Cơ chế tự động hóa từ khi sinh viên gửi Form đến khi cập nhật lên Bảng Vinh Danh
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsFormGuideModalOpen(false)}
+                className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs text-slate-600 dark:text-slate-300">
+              {/* Step 1 */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#0c1220] border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-xs">
+                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]">1</span>
+                  <span>Sinh viên gửi tài liệu qua Google Form</span>
+                </div>
+                <p className="pl-7 text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Sinh viên điền thông tin (Họ tên, MSSV, Email, Mô tả tài liệu, Link Google Drive). Câu trả lời được lưu trực tiếp vào Google Spreadsheet liên kết.
+                </p>
+              </div>
+
+              {/* Step 2 */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#0c1220] border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-xs">
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px]">2</span>
+                  <span>Thuật toán bóc tách & Đưa vào hàng đợi duyệt</span>
+                </div>
+                <p className="pl-7 text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Khi Admin nhấn <b>&quot;Đồng bộ từ Google Form&quot;</b>, hệ thống tự động:
+                </p>
+                <ul className="pl-11 list-disc space-y-1 text-slate-500 dark:text-slate-400">
+                  <li>Trích xuất loại tài liệu: <b>Đề thi</b>, <b>Bài tập</b>, <b>Bài giảng</b>, <b>Đồ án</b>.</li>
+                  <li>Nhận diện mã môn (ví dụ: <code className="text-indigo-400 font-mono">COMP1010</code>) và tên môn học từ kho dữ liệu Khoa CNTT.</li>
+                  <li>Lấy MSSV, Họ tên, Email và Link file Google Drive.</li>
+                  <li>Tự động loại bỏ trùng lặp và chuyển các bản ghi mới vào danh sách <b>Chờ duyệt</b>.</li>
+                </ul>
+              </div>
+
+              {/* Step 3 */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-[#0c1220] border border-slate-200 dark:border-slate-800 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white text-xs">
+                  <span className="w-5 h-5 rounded-full bg-amber-600 text-white flex items-center justify-center text-[10px]">3</span>
+                  <span>Admin kiểm duyệt & Xác nhận số lượng file</span>
+                </div>
+                <p className="pl-7 text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Admin bấm vào link Drive để kiểm tra nhanh file. Nhấn <b>&quot;Phê duyệt&quot;</b> và điều chỉnh số file đóng góp (1, 2, 3...) để tính điểm chuẩn xác nhất cho sinh viên.
+                </p>
+              </div>
+
+              {/* Step 4 */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/60 space-y-1.5">
+                <div className="flex items-center gap-2 font-bold text-emerald-800 dark:text-emerald-300 text-xs">
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px]">4</span>
+                  <span>Tự động cập nhật Bảng Xếp Hạng & Kho học liệu</span>
+                </div>
+                <p className="pl-7 text-emerald-700 dark:text-emerald-400 leading-relaxed">
+                  - <b>Bảng Xếp Hạng</b>: Tự động cộng dồn số lượng tài liệu theo <b>MSSV</b> của sinh viên, trao huy hiệu vinh danh và tự động sắp xếp lại thứ hạng theo thời gian thực.<br />
+                  - <b>Môn học</b>: Tài liệu được kích hoạt và xuất hiện ngay trong trang chi tiết môn học tương ứng.<br />
+                  - <b>Từ chối</b>: Nếu tài liệu không phù hợp/hỏng link, hệ thống tạo sẵn mẫu email phản hồi chuyên nghiệp để Admin gửi sinh viên chỉ với 1 click.
+                </p>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setIsFormGuideModalOpen(false)}
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer"
+              >
+                Đã hiểu quy trình
+              </button>
+            </div>
           </div>
         </div>
       )}

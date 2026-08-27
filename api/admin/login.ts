@@ -1,6 +1,14 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+interface GenericRequest {
+  method?: string;
+  body?: any;
+}
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+interface GenericResponse {
+  status: (statusCode: number) => GenericResponse;
+  json: (data: any) => void;
+}
+
+export default function handler(req: GenericRequest, res: GenericResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, message: 'Method Not Allowed' });
   }

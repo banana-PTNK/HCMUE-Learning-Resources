@@ -31,8 +31,10 @@ import { getRankLevel } from '../utils/rankingUtils';
 export interface FirestoreContribution {
   id: string;
   targetSubjectCode: string;
+  targetSubjectName?: string;
   customSubjectName?: string;
   assetType: string;
+  materialType?: string;
   driveUrl: string;
   filesCount: number;
   contributorName: string;
@@ -40,6 +42,7 @@ export interface FirestoreContribution {
   className?: string;
   email?: string;
   notes?: string;
+  description?: string;
   status: 'pending' | 'approved' | 'rejected';
   createdAt: any;
   approvedAt?: any;
@@ -354,32 +357,57 @@ export async function approveContribution(
 export async function updateContributorRecord(
   studentIdOrId: string,
   updates: Partial<Contributor>
-): Promise<Contributor | null> {
+): Promise<Contributor> {
   const currentContributors = getStoredContributors();
   const normalizedKey = (studentIdOrId || '').trim();
 
-  const index = currentContributors.findIndex(
-    (c) => (c.studentId && isSameStudentId(c.studentId, normalizedKey)) || c.id === studentIdOrId
-  );
+  let index = currentContributors.findIndex((c) => c.id && c.id === studentIdOrId);
+  if (index < 0) {
+    index = currentContributors.findIndex(
+      (c) => (c.studentId && isSameStudentId(c.studentId, normalizedKey)) || c.id === studentIdOrId
+    );
+  }
+  if (index < 0 && updates.name) {
+    index = currentContributors.findIndex(
+      (c) => c.name.trim().toLowerCase() === updates.name!.trim().toLowerCase()
+    );
+  }
 
-  if (index < 0) return null;
-
-  const existing = currentContributors[index];
-  const updated: Contributor = {
-    ...existing,
-    ...updates,
-    filesCount: updates.filesCount !== undefined ? Math.max(0, updates.filesCount) : existing.filesCount,
-    entriesCount: updates.entriesCount !== undefined ? Math.max(0, updates.entriesCount) : existing.entriesCount,
-  };
-
+  let updated: Contributor;
   const updatedList = [...currentContributors];
-  updatedList[index] = updated;
+
+  if (index >= 0) {
+    const existing = currentContributors[index];
+    updated = {
+      ...existing,
+      ...updates,
+      filesCount: updates.filesCount !== undefined ? Math.max(0, Number(updates.filesCount) || 0) : existing.filesCount,
+      entriesCount: updates.entriesCount !== undefined ? Math.max(0, Number(updates.entriesCount) || 0) : existing.entriesCount,
+    };
+    updatedList[index] = updated;
+  } else {
+    // Upsert as new entry if not existing in current list
+    updated = {
+      id: studentIdOrId || `contrib-${Date.now()}`,
+      rank: updates.rank || (currentContributors.length + 1),
+      name: updates.name || 'Sinh viên đóng góp',
+      studentId: updates.studentId || (normalizedKey.includes('.') ? normalizedKey : ''),
+      className: updates.className || '',
+      filesCount: Math.max(0, Number(updates.filesCount) || 1),
+      entriesCount: Math.max(1, Number(updates.entriesCount) || 1),
+      badgeTitle: updates.badgeTitle || 'Đóng góp viên Tích cực',
+      specialty: updates.specialty || 'Học liệu CNTT',
+      email: updates.email || '',
+      ...updates
+    };
+    updatedList.unshift(updated);
+  }
 
   setMemoryContributors(updatedList);
 
   // Sync to Firestore
   try {
-    const docId = updated.studentId || updated.id;
+    const docId = (updated.studentId && updated.studentId.trim()) ? updated.studentId.trim() : (updated.id || `contrib-${Date.now()}`);
     const contributorRef = doc(db, CONTRIBUTORS_COLLECTION, docId);
     await setDoc(contributorRef, {
       ...updated,
