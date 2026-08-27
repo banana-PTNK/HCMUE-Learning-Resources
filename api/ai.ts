@@ -10,12 +10,27 @@ export default async function handler(req: any, res: any) {
 
   try {
     const { action, payload } = req.body || {};
-
+    const parts: any[] = [];
     let systemInstruction = '';
-    let userPrompt = '';
 
+    // 1. Xử lý dữ liệu đa phương tiện (Ảnh / PDF Base64) nếu có
+    const rawBase64 = payload?.imageBase64 || payload?.fileBase64;
+    if (rawBase64) {
+      // Loại bỏ tiền tố "data:...;base64," nếu frontend truyền kèm
+      const cleanBase64 = rawBase64.replace(/^data:[^;]+;base64,/, '');
+      const mimeType = payload.mimeType || 'image/jpeg';
+      
+      parts.push({
+        inlineData: {
+          mimeType: mimeType,
+          data: cleanBase64
+        }
+      });
+    }
+
+    // 2. Phân loại nghiệp vụ và thiết lập Prompt / Schema
     if (action === 'EXPLAIN_CODE') {
-      systemInstruction = `Bạn là chuyên gia thuật toán và tối ưu hóa mã nguồn (C++, Java, Python). Phân tích mã nguồn và trả về JSON DUY NHẤT theo đúng schema:
+      systemInstruction = `Bạn là trợ lý AI chuyên gia thuật toán và tối ưu hóa code (C++, Python, Java). Hãy phân tích đoạn mã và trả về DUY NHẤT một chuỗi JSON hợp lệ theo schema sau (không thêm bất kỳ văn bản ngoài JSON):
 {
   "timeComplexity": "chuỗi (ví dụ: O(n log n))",
   "spaceComplexity": "chuỗi (ví dụ: O(1))",
@@ -25,39 +40,47 @@ export default async function handler(req: any, res: any) {
   "warnings": ["cảnh báo"],
   "optimizations": ["gợi ý tối ưu"],
   "edgeCases": ["trường hợp biên"],
-  "summary": "tóm tắt thuật toán"
+  "summary": "tóm tắt ngắn gọn"
 }`;
-      userPrompt = `Ngôn ngữ: ${payload.language || 'C++'}\nCode cần phân tích:\n${payload.code}`;
+      parts.push({
+        text: `Ngôn ngữ: ${payload?.language || 'C++'}\nCode cần phân tích:\n${payload?.code || ''}`
+      });
     } 
     else if (action === 'PARSE_SCHEDULE') {
-      systemInstruction = `Bạn là trợ lý trích xuất thời khóa biểu sinh viên sang JSON DUY NHẤT dạng mảng các môn học theo schema:
+      systemInstruction = `Bạn là chuyên gia trích xuất thời khóa biểu sinh viên. Hãy đọc dữ liệu hình ảnh hoặc văn bản được cung cấp và trả về DUY NHẤT một mảng JSON các môn học theo schema:
 [
   {
-    "id": "chuỗi_duy_nhat",
-    "subjectName": "Tên môn",
-    "subjectCode": "Mã môn",
-    "dayOfWeek": number (2 = Thứ 2, ..., 8 = Chủ nhật),
-    "startPeriod": number (tiết bắt đầu 1-12),
-    "endPeriod": number (tiết kết thúc 1-12),
+    "id": "mã_tự_sinh",
+    "subjectName": "Tên môn học",
+    "subjectCode": "Mã học phần",
+    "dayOfWeek": 2,
+    "startPeriod": 1,
+    "endPeriod": 3,
     "room": "Phòng học",
-    "lecturer": "Giảng viên",
-    "classGroup": "Mã lớp",
-    "isLab": boolean,
-    "color": "blue" | "emerald" | "indigo" | "purple"
+    "lecturer": "Giảng viên phụ trách",
+    "classGroup": "Mã nhóm/lớp",
+    "isLab": false,
+    "color": "blue"
   }
-]`;
-      userPrompt = payload.textData || 'Trích xuất thời khóa biểu từ dữ liệu đầu vào.';
+]
+Quy ước: dayOfWeek là số từ 2 (Thứ 2) đến 8 (Chủ nhật). startPeriod và endPeriod từ tiết 1 đến 12. color chọn một trong: "blue", "emerald", "indigo", "purple".`;
+      parts.push({
+        text: payload?.textData || 'Trích xuất toàn bộ lịch học trong file/ảnh được đính kèm sang mảng JSON.'
+      });
     } 
     else if (action === 'PARSE_MASTER_SCHEDULE') {
-      systemInstruction = `Bạn là trợ lý phân tích danh mục lịch mở lớp học phần đại học sang JSON mảng danh sách lớp.`;
-      userPrompt = payload.textData || payload.customPrompt || 'Trích xuất danh mục lớp học phần.';
+      systemInstruction = `Bạn là trợ lý phân tích danh mục toàn bộ các lớp học phần mở trong học kỳ sang JSON mảng các MasterCourseSection. Chỉ trả về mảng JSON thuần.`;
+      parts.push({
+        text: payload?.textData || payload?.customPrompt || 'Phân tích danh mục lớp học phần được cung cấp sang JSON.'
+      });
     } 
     else {
       return res.status(400).json({ success: false, error: 'Action không hợp lệ.' });
     }
 
+    // 3. Gửi yêu cầu đến Gemini API
     const geminiPayload = {
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      contents: [{ role: 'user', parts: parts }],
       systemInstruction: { parts: [{ text: systemInstruction }] },
       generationConfig: {
         temperature: 0.1,
@@ -76,10 +99,13 @@ export default async function handler(req: any, res: any) {
 
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.error?.message || 'Lỗi từ Gemini API');
+      throw new Error(data.error?.message || 'Lỗi xử lý từ Gemini API');
     }
 
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    // 4. Bóc tách và làm sạch JSON an toàn
+    let rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    rawText = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    
     const parsedData = JSON.parse(rawText);
 
     return res.status(200).json({
@@ -89,9 +115,10 @@ export default async function handler(req: any, res: any) {
     });
 
   } catch (error: any) {
+    console.error('API Error:', error);
     return res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message || 'Lỗi xử lý nội bộ máy chủ'
     });
   }
 }
