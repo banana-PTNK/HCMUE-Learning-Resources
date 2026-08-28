@@ -1,23 +1,9 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   ExternalLink,
-  ChevronRight,
-  BookOpen,
   Layers,
   GraduationCap,
   Calendar,
-  CheckCircle2,
-  Clock,
-  FileText,
-  Code,
-  FolderOpen,
-  Share2,
-  PlusCircle,
-  HelpCircle,
-  Sparkles,
-  ArrowLeft,
-  FlaskConical,
-  Laptop,
   AlertTriangle,
   Info
 } from 'lucide-react';
@@ -25,6 +11,7 @@ import { categoryMeta } from '../data/mockData';
 import { Subject } from '../types';
 import { getDriveUrlForCourse } from '../config/driveLinks';
 import { useGoogleSheet } from '../context/GoogleSheetContext';
+import { sanitizeScheduleString } from '../utils/sanitizeUtils';
 
 interface SubjectDetailPageProps {
   code: string;
@@ -34,10 +21,8 @@ interface SubjectDetailPageProps {
 
 export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
   code,
-  onNavigate,
-  onOpenContributeModal
+  onNavigate
 }) => {
-  const [copied, setCopied] = useState(false);
   const { getSubjectByCode } = useGoogleSheet();
 
   // Find subject dynamically from background merged subjects
@@ -61,14 +46,7 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
   } as Subject;
 
   const meta = categoryMeta[subject.category] || categoryMeta.foundation;
-
-  const handleShare = () => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(window.location.href);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+  const sanitizedNotes = sanitizeScheduleString(subject.updateNotes);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200 pb-12">
@@ -122,9 +100,9 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
           </div>
         </div>
 
-        {/* Title, Notes & Action Buttons */}
+        {/* Title & Action Button */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="space-y-3 flex-1">
+          <div className="space-y-2 flex-1">
             <h1 className="text-2xl sm:text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
               {subject.code} - {subject.name}
             </h1>
@@ -135,24 +113,16 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
             )}
           </div>
 
-          {/* Action Buttons: Open Drive + Share */}
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
-            <button
-              onClick={handleShare}
-              className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
-              title="Sao chép link môn học"
-            >
-              <Share2 className="w-5 h-5" />
-            </button>
-
+          {/* Streamlined Open Drive Button without redundant icons/copy-buttons */}
+          <div className="flex items-center gap-3 shrink-0">
             <a
+              id="course-open-drive-btn"
               href={getDriveUrlForCourse(subject.code, subject.driveUrl)}
               target="_blank"
               rel="noreferrer"
-              className="px-5 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-semibold text-sm shadow-md shadow-indigo-600/20 flex items-center gap-2 transition-all duration-200 active:scale-95 cursor-pointer"
+              className="px-6 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500 text-white font-semibold text-sm shadow-md shadow-indigo-600/20 flex items-center gap-2 transition-all duration-200 active:scale-95 cursor-pointer"
             >
-              <FolderOpen className="w-4 h-4" />
-              <span>Mở Drive môn học 📁</span>
+              <span>Mở Google Drive</span>
               <ExternalLink className="w-4 h-4 ml-0.5" />
             </a>
           </div>
@@ -181,34 +151,32 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
               )}
             </div>
 
-            <div className="space-y-3">
+            {/* Syllabus Chapters List */}
+            <div className="space-y-4">
               {subject.syllabus && subject.syllabus.length > 0 ? (
-                subject.syllabus.map((ch) => (
+                subject.syllabus.map((chapter) => (
                   <div
-                    key={ch.chapter}
-                    className="p-4 rounded-xl bg-slate-50 dark:bg-[#090e18] border border-slate-200/80 dark:border-slate-800/80 space-y-2"
+                    key={chapter.chapter}
+                    className="p-4 rounded-xl bg-slate-50/80 dark:bg-[#090e18] border border-slate-200/80 dark:border-slate-800/80 space-y-2"
                   >
-                    <div className="flex items-center gap-2.5">
-                      <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 font-mono text-xs font-bold shrink-0">
-                        Chương {ch.chapter}
-                      </span>
-                      <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                        {ch.title}
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                        Chương {chapter.chapter}: {chapter.title}
                       </h3>
                     </div>
 
                     <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed pl-1">
-                      {ch.description}
+                      {chapter.description}
                     </p>
 
-                    {ch.topics && ch.topics.length > 0 && (
+                    {chapter.topics && chapter.topics.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 pt-1 pl-1">
-                        {ch.topics.map((t, idx) => (
+                        {chapter.topics.map((topic, idx) => (
                           <span
                             key={idx}
-                            className="px-2.5 py-1 rounded-md bg-white dark:bg-[#131b2e] text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60 text-xs font-mono"
+                            className="px-2.5 py-1 rounded-md bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/40 text-xs font-mono font-medium"
                           >
-                            • {t}
+                            {topic}
                           </span>
                         ))}
                       </div>
@@ -216,23 +184,23 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
                   </div>
                 ))
               ) : (
-                <div className="text-xs text-slate-500 dark:text-slate-400 italic p-4 text-center">
-                  Đang cập nhật đề cương chi tiết cho môn học này từ ban học thuật.
+                <div className="p-5 rounded-xl bg-slate-50 dark:bg-[#090e18] border border-slate-200/80 dark:border-slate-800/80 text-center text-base text-slate-600 dark:text-slate-300 font-medium">
+                  Không có
                 </div>
               )}
             </div>
           </div>
 
-          {/* Card 2.5: Đề cương thực hành / Lab */}
+          {/* Card: Đề cương thực hành (Practical Outline) */}
           <div className="p-6 rounded-2xl bg-white dark:bg-[#131b2e] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
               <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <FlaskConical className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                Nội dung & Đề cương thực hành (Lab)
+                <Layers className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                Đề cương thực hành & Bài tập lớn
               </h2>
               {subject.practicalOutline && subject.practicalOutline.length > 0 ? (
-                <span className="text-sm sm:text-base font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1 rounded-md border border-emerald-200 dark:border-emerald-800/60 font-semibold">
-                  {subject.practicalOutline.length} Bài thực hành
+                <span className="text-sm sm:text-base font-mono text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1 rounded-md border border-indigo-200 dark:border-indigo-800/60 font-semibold">
+                  {subject.practicalOutline.length} Bài Lab
                 </span>
               ) : (
                 <span className="text-sm sm:text-base font-mono text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800/80 px-3 py-1 rounded-md border border-slate-200 dark:border-slate-700/60 font-semibold">
@@ -241,20 +209,18 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
               )}
             </div>
 
-            <div className="space-y-3">
+            {/* Practical Outline List */}
+            <div className="space-y-4">
               {subject.practicalOutline && subject.practicalOutline.length > 0 ? (
                 <>
                   {subject.practicalOutline.map((lab) => (
                     <div
                       key={lab.labNumber}
-                      className="p-4 rounded-xl bg-slate-50 dark:bg-[#090e18] border border-slate-200/80 dark:border-slate-800/80 space-y-2"
+                      className="p-4 rounded-xl bg-slate-50/80 dark:bg-[#090e18] border border-slate-200/80 dark:border-slate-800/80 space-y-2"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60 font-mono text-xs font-bold shrink-0">
-                          LAB {lab.labNumber}
-                        </span>
-                        <h3 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-                          {lab.title}
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                          Lab {lab.labNumber}: {lab.title}
                         </h3>
                       </div>
 
@@ -269,7 +235,7 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
                               key={idx}
                               className="px-2.5 py-1 rounded-md bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40 text-xs font-mono font-medium"
                             >
-                              ⚙️ {tech}
+                              {tech}
                             </span>
                           ))}
                         </div>
@@ -417,7 +383,7 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
           </div>
 
           {/* Card 5: Thông tin khác */}
-          {subject.updateNotes && (
+          {sanitizedNotes && (
             <div className="p-6 rounded-2xl bg-white dark:bg-[#131b2e] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
                 <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -428,7 +394,7 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
 
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#090e18] border border-slate-200/80 dark:border-slate-800/80">
                 <p className="text-base text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {subject.updateNotes}
+                  {sanitizedNotes}
                 </p>
               </div>
             </div>

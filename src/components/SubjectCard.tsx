@@ -2,6 +2,7 @@ import React from 'react';
 import { ArrowRight, FileCheck, Presentation, Calendar } from 'lucide-react';
 import { Subject } from '../types';
 import { HighlightText } from './HighlightText';
+import { sanitizeScheduleString } from '../utils/sanitizeUtils';
 
 interface SubjectCardProps {
   subject: Subject;
@@ -23,6 +24,8 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
       onNavigate(`/subject/${subject.code}`);
     }
   };
+
+  const sanitizedNotes = sanitizeScheduleString(subject.updateNotes);
 
   return (
     <div
@@ -59,7 +62,7 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
               <HighlightText text={subject.code} query={searchQuery} />
             </span>
 
-            {/* Separate Credits Box - Highlighted */}
+            {/* Separate Credits Box */}
             <span
               id={`subj-credits-${subject.code}`}
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 text-indigo-700 dark:text-indigo-300 text-xs font-mono font-bold shadow-xs transition-all duration-200 group-hover:scale-105"
@@ -99,9 +102,9 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
         </div>
 
         {/* Update note snippet if available */}
-        {subject.updateNotes && (
+        {sanitizedNotes && (
           <p className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1 italic bg-slate-50 dark:bg-slate-900/60 p-1.5 rounded-lg border border-slate-100 dark:border-slate-800">
-            📝 {subject.updateNotes}
+            {sanitizedNotes}
           </p>
         )}
       </div>
@@ -136,4 +139,3 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
     </div>
   );
 };
-

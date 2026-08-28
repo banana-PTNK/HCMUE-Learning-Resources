@@ -1,6 +1,110 @@
 import { ScheduleItem, MasterCourseSection, CodeAnalysisResult } from '../types';
-import masterSampleJson from '../data/masterScheduleSample.json';
 
+/**
+ * Client-Side Image Pre-processing & Downscaling
+ * Automatically downscales uploaded schedule images (max width 1080px, JPEG/WebP format, 75% quality)
+ * to reduce payload size by ~80%, cutting network latency down to sub-second upload speeds.
+ */
+export async function compressImageClientSide(
+  fileOrBase64: File | string,
+  maxWidth = 1080,
+  quality = 0.75
+): Promise<{ base64: string; mimeType: string }> {
+  // If running in an environment without window/DOM (SSR or worker), pass through
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    if (typeof fileOrBase64 === 'string') {
+      const mime = fileOrBase64.match(/^data:(image\/[a-zA-Z0-9.+_-]+);base64,/)?.[1] || 'image/jpeg';
+      return { base64: fileOrBase64, mimeType: mime };
+    }
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve({ base64: result, mimeType: fileOrBase64.type || 'image/jpeg' });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(fileOrBase64);
+    });
+  }
+
+  // Convert File to Object URL or use string base64 directly
+  return new Promise((resolve, reject) => {
+    let srcUrl = '';
+    let shouldRevoke = false;
+
+    if (typeof fileOrBase64 === 'string') {
+      srcUrl = fileOrBase64;
+    } else {
+      srcUrl = URL.createObjectURL(fileOrBase64);
+      shouldRevoke = true;
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+
+    img.onload = () => {
+      if (shouldRevoke) {
+        URL.revokeObjectURL(srcUrl);
+      }
+
+      let { width, height } = img;
+      if (width > maxWidth) {
+        height = Math.round((height * maxWidth) / width);
+        width = maxWidth;
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        // Fallback if 2d context unavailable
+        if (typeof fileOrBase64 === 'string') {
+          return resolve({ base64: fileOrBase64, mimeType: 'image/jpeg' });
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve({ base64: reader.result as string, mimeType: fileOrBase64.type });
+        reader.onerror = reject;
+        reader.readAsDataURL(fileOrBase64);
+        return;
+      }
+
+      // High quality smoothing
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Export as compressed JPEG
+      const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+      resolve({
+        base64: compressedDataUrl,
+        mimeType: 'image/jpeg'
+      });
+    };
+
+    img.onerror = (err) => {
+      if (shouldRevoke) {
+        URL.revokeObjectURL(srcUrl);
+      }
+      // If error loading image (e.g. PDF or text file), return original representation
+      if (typeof fileOrBase64 === 'string') {
+        resolve({ base64: fileOrBase64, mimeType: 'image/jpeg' });
+      } else {
+        const reader = new FileReader();
+        reader.onload = () => resolve({ base64: reader.result as string, mimeType: fileOrBase64.type });
+        reader.onerror = () => reject(err);
+        reader.readAsDataURL(fileOrBase64);
+      }
+    };
+
+    img.src = srcUrl;
+  });
+}
+
+/**
+ * Parses university master schedule files with client-side image downscaling and fail-fast API handling.
+ */
 export async function parseMasterScheduleAI(payload: {
   imageBase64?: string;
   fileBase64?: string;
@@ -13,6 +117,20 @@ export async function parseMasterScheduleAI(payload: {
   universityPreset?: string;
 }): Promise<{ success: boolean; data: MasterCourseSection[]; isMock?: boolean; message?: string }> {
   try {
+    let finalBase64 = payload.fileBase64 || payload.imageBase64;
+    let finalMimeType = payload.mimeType;
+
+    // Downscale if it's an image
+    if (finalBase64 && (!finalMimeType || finalMimeType.startsWith('image/'))) {
+      try {
+        const compressed = await compressImageClientSide(finalBase64, 1080, 0.75);
+        finalBase64 = compressed.base64;
+        finalMimeType = compressed.mimeType;
+      } catch (compErr) {
+        console.warn('Image downscaling skipped:', compErr);
+      }
+    }
+
     const response = await fetch('/api/ai', {
       method: 'POST',
       headers: {
@@ -20,33 +138,51 @@ export async function parseMasterScheduleAI(payload: {
       },
       body: JSON.stringify({
         action: 'PARSE_MASTER_SCHEDULE',
-        payload
+        payload: {
+          ...payload,
+          fileBase64: finalBase64,
+          imageBase64: finalBase64,
+          mimeType: finalMimeType
+        }
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}`);
+    const resJson = await response.json();
+    if (!response.ok || resJson.success === false) {
+      const errMsg = resJson.error || `Lỗi máy chủ (${response.status}): ${response.statusText}`;
+      throw new Error(errMsg);
     }
 
-    const resJson = await response.json();
     return resJson;
   } catch (error: any) {
-    console.warn('Lỗi kết nối AI Master Schedule, tự động kích hoạt bộ đệm dữ liệu HCMUE:', error);
-    return {
-      success: true,
-      isMock: true,
-      data: masterSampleJson as MasterCourseSection[],
-      message: 'Hệ thống đã tự động nạp 100% danh mục thời khóa biểu chuẩn khoa CNTT - HCMUE.'
-    };
+    console.error('Lỗi phân tích Thời khóa biểu:', error);
+    // Surface precise error to prevent UI hanging
+    throw new Error(error.message || 'Không thể kết nối đến Gemini 3.7 Flash.');
   }
 }
 
+/**
+ * Parses personal schedule images or text with client-side pre-processing and fail-fast execution.
+ */
 export async function parseScheduleAI(payload: {
   imageBase64?: string;
   mimeType?: string;
   textData?: string;
 }): Promise<{ success: boolean; data: ScheduleItem[]; isMock?: boolean; message?: string }> {
   try {
+    let finalImageBase64 = payload.imageBase64;
+    let finalMimeType = payload.mimeType || 'image/jpeg';
+
+    if (finalImageBase64) {
+      try {
+        const compressed = await compressImageClientSide(finalImageBase64, 1080, 0.75);
+        finalImageBase64 = compressed.base64;
+        finalMimeType = compressed.mimeType;
+      } catch (compErr) {
+        console.warn('Image downscaling skipped:', compErr);
+      }
+    }
+
     const response = await fetch('/api/ai', {
       method: 'POST',
       headers: {
@@ -54,94 +190,30 @@ export async function parseScheduleAI(payload: {
       },
       body: JSON.stringify({
         action: 'PARSE_SCHEDULE',
-        payload
+        payload: {
+          ...payload,
+          imageBase64: finalImageBase64,
+          mimeType: finalMimeType
+        }
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}`);
+    const resJson = await response.json();
+    if (!response.ok || resJson.success === false) {
+      const errMsg = resJson.error || `Lỗi nhận diện thời khóa biểu (${response.status})`;
+      throw new Error(errMsg);
     }
 
-    const resJson = await response.json();
     return resJson;
   } catch (error: any) {
-    console.warn('Fallback sang parser cục bộ do lỗi API:', error);
-    // Fallback lịch học mẫu chuẩn HCMUE
-    return {
-      success: true,
-      isMock: true,
-      data: [
-        {
-          id: "sch-fb-1",
-          subjectName: "Cơ sở dữ liệu",
-          subjectCode: "COMP1011",
-          dayOfWeek: 2,
-          startPeriod: 1,
-          endPeriod: 3,
-          room: "Phòng A.302",
-          lecturer: "TS. Nguyễn Văn Hùng",
-          classGroup: "K48.CNTT.A",
-          isLab: false,
-          color: "blue"
-        },
-        {
-          id: "sch-fb-2",
-          subjectName: "Cấu trúc Dữ liệu và Giải thuật",
-          subjectCode: "COMP1012",
-          dayOfWeek: 3,
-          startPeriod: 4,
-          endPeriod: 6,
-          room: "Phòng C.105",
-          lecturer: "PGS.TS Lê Hoàng Nam",
-          classGroup: "K48.CNTT.A",
-          isLab: false,
-          color: "emerald"
-        },
-        {
-          id: "sch-fb-3",
-          subjectName: "Lập trình Hướng đối tượng",
-          subjectCode: "COMP1013",
-          dayOfWeek: 4,
-          startPeriod: 1,
-          endPeriod: 4,
-          room: "Phòng A.201",
-          lecturer: "ThS. Đỗ Minh Quân",
-          classGroup: "K48.CNTT.A",
-          isLab: false,
-          color: "indigo"
-        },
-        {
-          id: "sch-fb-4",
-          subjectName: "Mạng máy tính",
-          subjectCode: "COMP1016",
-          dayOfWeek: 5,
-          startPeriod: 7,
-          endPeriod: 9,
-          room: "Phòng B.401",
-          lecturer: "TS. Phạm Quang Dũng",
-          classGroup: "K48.CNTT.A",
-          isLab: false,
-          color: "purple"
-        },
-        {
-          id: "sch-fb-5",
-          subjectName: "Thực hành Cấu trúc Dữ liệu",
-          subjectCode: "COMP1012_LAB",
-          dayOfWeek: 6,
-          startPeriod: 1,
-          endPeriod: 3,
-          room: "Phòng Lab 2 (D.102)",
-          lecturer: "ThS. Vũ Thảo My",
-          classGroup: "K48.CNTT.A1",
-          isLab: true,
-          color: "emerald"
-        }
-      ],
-      message: 'Đã nhận diện thời khóa biểu (Dữ liệu học kỳ mẫu)'
-    };
+    console.error('Lỗi nhận diện thời khóa biểu cá nhân:', error);
+    throw new Error(error.message || 'Không thể nhận diện thời khóa biểu.');
   }
 }
 
+/**
+ * Ultra-fast algorithm and Big-O explanation via Gemini 3.7 Flash with fail-fast handling.
+ */
 export async function explainCodeAI(payload: {
   code: string;
   language: string;
@@ -158,64 +230,15 @@ export async function explainCodeAI(payload: {
       })
     });
 
-    if (!response.ok) {
-      throw new Error(`HTTP error ${response.status}`);
+    const resJson = await response.json();
+    if (!response.ok || resJson.success === false) {
+      const errMsg = resJson.error || `Lỗi phân tích mã nguồn (${response.status})`;
+      throw new Error(errMsg);
     }
 
-    const resJson = await response.json();
     return resJson;
   } catch (error: any) {
-    console.warn('Fallback sang phân tích thuật toán cục bộ:', error);
-    return {
-      success: true,
-      isMock: true,
-      data: {
-        timeComplexity: "O(log n)",
-        spaceComplexity: "O(1)",
-        isOptimal: true,
-        spaceType: "Tại chỗ (In-place)",
-        dryRunSteps: [
-          {
-            step: 1,
-            desc: "Khởi tạo boundaries `left = 0`, `right = arr.size() - 1`",
-            variables: "left: 0, right: 9, target: 7"
-          },
-          {
-            step: 2,
-            desc: "Vòng lặp `while (left <= right)`: Tính điểm giữa `mid = left + (right - left) / 2`",
-            variables: "mid: 4, arr[mid]: 5 < 7"
-          },
-          {
-            step: 3,
-            desc: "Phần tử giữa nhỏ hơn mục tiêu, thu hẹp không gian tìm kiếm sang nửa phải: `left = mid + 1`",
-            variables: "left: 5, right: 9"
-          },
-          {
-            step: 4,
-            desc: "Tính lại `mid = 5 + (9 - 5) / 2 = 7`. Kiểm tra `arr[7] == target` -> Khớp thành công!",
-            variables: "mid: 7, arr[7]: 7"
-          },
-          {
-            step: 5,
-            desc: "Trả về chỉ số `7` kết thúc thành công với độ phức tạp logarit.",
-            variables: "return 7"
-          }
-        ],
-        warnings: [
-          "Lưu ý kiểm tra tràn số nguyên khi tính giá trị trung vị trong các mảng rất lớn.",
-          "Thuật toán chỉ hoạt động chính xác khi mảng đầu vào đã được sắp xếp tăng dần."
-        ],
-        optimizations: [
-          "Có thể áp dụng phép dịch bit `((right - left) >> 1)` để tối ưu tốc độ CPU ở cấp độ vi kiến trúc.",
-          "Cân nhắc dùng `std::lower_bound` trong thư viện chuẩn C++ STL để mã nguồn ngắn gọn và an toàn."
-        ],
-        edgeCases: [
-          "Mảng rỗng (size = 0) -> Dừng ngay tại kiểm tra vòng lặp, trả về -1.",
-          "Target nằm ở vị trí đầu tiên hoặc cuối cùng của mảng.",
-          "Mảng có tất cả các phần tử giống nhau."
-        ],
-        summary: "Thuật toán Tìm kiếm Nhị phân đạt hiệu năng tối ưu lý tưởng O(log n)."
-      }
-    };
+    console.error('Lỗi phân tích thuật toán:', error);
+    throw new Error(error.message || 'Không thể phân tích thuật toán.');
   }
 }

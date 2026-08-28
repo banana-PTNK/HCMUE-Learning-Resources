@@ -6,7 +6,9 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
-  serverTimestamp
+  serverTimestamp,
+  query,
+  limit
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { Contributor } from '../types';
@@ -587,12 +589,28 @@ export async function searchContributionsByStudent(query: string): Promise<Fires
   });
 }
 
-/**
- * Fetch verified Hall of Fame Contributors from durable Firestore or cache.
- */
-export async function fetchContributorsFromFirestore(): Promise<Contributor[]> {
+const SWR_CONTRIBUTORS_CACHE_KEY = 'hcmue_swr_contributors_cache_v1';
+
+export function getCachedContributors(): Contributor[] {
   try {
-    const snapshot = await getDocs(collection(db, CONTRIBUTORS_COLLECTION));
+    const raw = localStorage.getItem(SWR_CONTRIBUTORS_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return getStoredContributors();
+}
+
+/**
+ * Fetch verified Hall of Fame Contributors from durable Firestore with SWR cache and limit.
+ */
+export async function fetchContributorsFromFirestore(maxLimit = 100): Promise<Contributor[]> {
+  try {
+    const q = query(collection(db, CONTRIBUTORS_COLLECTION), limit(maxLimit));
+    const snapshot = await getDocs(q);
     if (!snapshot.empty) {
       const list: Contributor[] = [];
       snapshot.forEach((docSnap) => {
@@ -607,11 +625,14 @@ export async function fetchContributorsFromFirestore(): Promise<Contributor[]> {
         list.forEach(c => map.set(c.studentId || c.id, c));
         const mergedList = Array.from(map.values());
         setMemoryContributors(mergedList);
+        try {
+          localStorage.setItem(SWR_CONTRIBUTORS_CACHE_KEY, JSON.stringify(mergedList));
+        } catch {}
         return mergedList;
       }
     }
   } catch (err) {
     console.warn('Firestore contributors fetch failed, using stored:', err);
   }
-  return getStoredContributors();
+  return getCachedContributors();
 }

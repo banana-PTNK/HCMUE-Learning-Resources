@@ -229,8 +229,9 @@ function AppContent() {
       );
     }
 
-    if (currentPath === '/announcements') {
-      return <AnnouncementsPage onNavigate={handleNavigate} />;
+    if (currentPath.startsWith('/announcements/') || currentPath === '/announcements') {
+      const annId = currentPath.startsWith('/announcements/') ? currentPath.replace('/announcements/', '') : undefined;
+      return <AnnouncementsPage onNavigate={handleNavigate} initialAnnouncementId={annId} />;
     }
 
     if (currentPath === '/admin' || currentPath === '/quantri') {

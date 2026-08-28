@@ -185,6 +185,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   // Leaderboard Direct Manager State
   const [leaderboardList, setLeaderboardList] = useState<Contributor[]>(() => getStoredContributors());
   const [leaderboardSearchQuery, setLeaderboardSearchQuery] = useState('');
+  const [leaderboardPage, setLeaderboardPage] = useState(1);
+  const LEADERBOARD_PAGE_SIZE = 30;
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
   const [editingContributor, setEditingContributor] = useState<Contributor | null>(null);
   const [isAddContributorModalOpen, setIsAddContributorModalOpen] = useState(false);
@@ -903,6 +905,12 @@ Website: https://fit-hcmue-studyvault.web.app`;
     return matchesSearchQuery(c, leaderboardSearchQuery);
   });
 
+  const totalLeaderboardPages = Math.ceil(filteredLeaderboard.length / LEADERBOARD_PAGE_SIZE) || 1;
+  const paginatedLeaderboard = filteredLeaderboard.slice(
+    (leaderboardPage - 1) * LEADERBOARD_PAGE_SIZE,
+    leaderboardPage * LEADERBOARD_PAGE_SIZE
+  );
+
   const filteredFeedbacks = feedbacks.filter((f) => {
     if (feedbackFilter !== 'all' && f.status !== feedbackFilter) return false;
     if (feedbackSearchQuery.trim()) {
@@ -1605,68 +1613,101 @@ Website: https://fit-hcmue-studyvault.web.app`;
                   Không tìm thấy sinh viên nào.
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131b2e]">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 font-semibold text-slate-700 dark:text-slate-300">
-                      <tr>
-                        <th className="p-3">Hạng</th>
-                        <th className="p-3">Họ và tên</th>
-                        <th className="p-3">MSSV / Lớp</th>
-                        <th className="p-3">Danh hiệu</th>
-                        <th className="p-3 text-center">Số tài liệu</th>
-                        <th className="p-3 text-right">Thao tác</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-800 dark:text-slate-200">
-                      {filteredLeaderboard.map((item, idx) => (
-                        <tr key={item.id || item.studentId || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                          <td className="p-3 font-mono font-bold">#{idx + 1}</td>
-                          <td className="p-3 font-semibold">{item.name}</td>
-                          <td className="p-3 font-mono text-slate-500">{item.studentId} • {item.className || 'CNTT'}</td>
-                          <td className="p-3">
-                            <span className="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-medium text-[11px]">
-                              {item.badgeTitle || 'Đóng góp viên'}
-                            </span>
-                          </td>
-                          <td className="p-3 text-center">
-                            <div className="inline-flex items-center gap-1.5">
-                              <button
-                                onClick={() => handleQuickAdjustContributorFiles(item.studentId || item.id, item.name, -1)}
-                                className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 flex items-center justify-center font-bold"
-                              >
-                                -
-                              </button>
-                              <span className="font-bold font-mono px-1.5">{item.filesCount || 0}</span>
-                              <button
-                                onClick={() => handleQuickAdjustContributorFiles(item.studentId || item.id, item.name, 1)}
-                                className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 flex items-center justify-center font-bold"
-                              >
-                                +
-                              </button>
-                            </div>
-                          </td>
-                          <td className="p-3 text-right">
-                            <div className="inline-flex items-center gap-2">
-                              <button
-                                onClick={() => setEditingContributor(item)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800"
-                                title="Sửa thông tin"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteContributor(item.studentId || item.id, item.name)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
-                                title="Xóa khỏi BXH"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </td>
+                <div className="space-y-3">
+                  <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131b2e]">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 font-semibold text-slate-700 dark:text-slate-300">
+                        <tr>
+                          <th className="p-3">Hạng</th>
+                          <th className="p-3">Họ và tên</th>
+                          <th className="p-3">MSSV / Lớp</th>
+                          <th className="p-3">Danh hiệu</th>
+                          <th className="p-3 text-center">Số tài liệu</th>
+                          <th className="p-3 text-right">Thao tác</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-800 dark:text-slate-200">
+                        {paginatedLeaderboard.map((item, idx) => {
+                          const globalRank = (leaderboardPage - 1) * LEADERBOARD_PAGE_SIZE + idx + 1;
+                          return (
+                            <tr key={item.id || item.studentId || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                              <td className="p-3 font-mono font-bold">#{globalRank}</td>
+                              <td className="p-3 font-semibold">{item.name}</td>
+                              <td className="p-3 font-mono text-slate-500">{item.studentId} • {item.className || 'CNTT'}</td>
+                              <td className="p-3">
+                                <span className="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-medium text-[11px]">
+                                  {item.badgeTitle || 'Đóng góp viên'}
+                                </span>
+                              </td>
+                              <td className="p-3 text-center">
+                                <div className="inline-flex items-center gap-1.5">
+                                  <button
+                                    onClick={() => handleQuickAdjustContributorFiles(item.studentId || item.id, item.name, -1)}
+                                    className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 flex items-center justify-center font-bold"
+                                  >
+                                    -
+                                  </button>
+                                  <span className="font-bold font-mono px-1.5">{item.filesCount || 0}</span>
+                                  <button
+                                    onClick={() => handleQuickAdjustContributorFiles(item.studentId || item.id, item.name, 1)}
+                                    className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-600 dark:text-slate-400 flex items-center justify-center font-bold"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="p-3 text-right">
+                                <div className="inline-flex items-center gap-2">
+                                  <button
+                                    onClick={() => setEditingContributor(item)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                    title="Sửa thông tin"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteContributor(item.studentId || item.id, item.name)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50"
+                                    title="Xóa khỏi BXH"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* 30-item Pagination Controls */}
+                  {totalLeaderboardPages > 1 && (
+                    <div className="flex items-center justify-between pt-2 text-xs text-slate-500 dark:text-slate-400">
+                      <div>
+                        Hiển thị <span className="font-bold text-slate-900 dark:text-white">{filteredLeaderboard.length}</span> người dùng (Trang {leaderboardPage}/{totalLeaderboardPages})
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          disabled={leaderboardPage === 1}
+                          onClick={() => setLeaderboardPage((p) => Math.max(1, p - 1))}
+                          className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131b2e] disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer font-medium"
+                        >
+                          Trước
+                        </button>
+                        <span className="px-2 font-mono font-bold text-slate-700 dark:text-slate-300">
+                          {leaderboardPage} / {totalLeaderboardPages}
+                        </span>
+                        <button
+                          disabled={leaderboardPage === totalLeaderboardPages}
+                          onClick={() => setLeaderboardPage((p) => Math.min(totalLeaderboardPages, p + 1))}
+                          className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#131b2e] disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer font-medium"
+                        >
+                          Sau
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

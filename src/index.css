@@ -14,8 +14,8 @@
     --border-subtle: #e2e8f0;
     --border-strong: #cbd5e1;
     --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #94a3b8;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
     --primary-brand: #4f46e5;
   }
 
@@ -35,17 +35,35 @@
     --primary-brand: #4f46e5;
   }
 
-  body {
-    background-color: var(--bg-page);
-    color: var(--text-primary);
-    font-family: "Inter", "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 15.5px;
-    line-height: 1.6;
-    letter-spacing: -0.011em;
+  html, body {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.625;
+    letter-spacing: -0.015em;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+  }
+
+  body {
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+  }
+
+  h1 {
+    letter-spacing: -0.025em;
+    line-height: 1.25;
+  }
+
+  h2 {
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+  }
+
+  h3 {
+    letter-spacing: -0.015em;
+    line-height: 1.35;
   }
 
   /* Custom sleek scrollbars */
@@ -74,7 +92,6 @@
 
 /* Base utility classes for smooth animations and performance */
 .transition-theme {
-  /* Disabled transition to prevent stutter / thread blocking during instant theme toggles */
   transition: none !important;
 }
 
