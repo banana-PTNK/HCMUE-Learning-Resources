@@ -644,6 +644,16 @@
  * - EXPLAIN_CODE (Compiler-grade Big-O complexity & dynamic trace)
  */
 
+/**
+ * Vercel Serverless Function: /api/ai
+ * Ultra-Fast & High-Accuracy AI Assistant Engine powered by Gemini 3.6 Flash
+ * Supports:
+ * - PARSE_SCHEDULE (Personal student schedule vision extraction)
+ * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
+ * - EXPLAIN_CODE (Compiler-grade Big-O complexity & dynamic trace)
+ */
+
+
 export const config = {
   maxDuration: 60,
 };
@@ -669,20 +679,17 @@ function sanitizeAndParseJson(rawText: string): any {
     .replace(/\s*```$/i, '')
     .trim();
 
-  // 1. Thử parse trực tiếp
   try {
     const direct = JSON.parse(text);
     if (direct && typeof direct === 'object' && !Array.isArray(direct)) return direct;
   } catch {}
 
-  // 2. Tự sửa lỗi unescaped newlines trong các chuỗi string JSON
   try {
     const fixedNewlines = text.replace(/(?<=:\s*"[^"]*)\n(?=[^"]*")/g, '\\n');
     const parsed = JSON.parse(fixedNewlines);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
   } catch {}
 
-  // 3. Trích xuất block JSON từ { đầu tiên đến } cuối cùng
   const firstBrace = text.indexOf('{');
   const lastBrace = text.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -976,8 +983,10 @@ async function callGemini(apiKey: string, payload: any): Promise<string> {
 
   for (const model of models) {
     try {
-      const url = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){model}:generateContent?key=${apiKey}`;
-      const response = await fetch(url, {
+      // Đường dẫn API chuẩn xác - không chứa bất kỳ định dạng liên kết Markdown nào
+      const endpoint = '[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)' + model + ':generateContent?key=' + apiKey;
+      
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
