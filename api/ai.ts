@@ -649,12 +649,9 @@ export const config = {
   maxDuration: 60,
 };
 
-// Hàm trích xuất toàn bộ text từ các parts của Gemini
 function extractTextFromCandidate(candidate: any): string {
   if (!candidate?.content?.parts) return '';
   const parts = candidate.content.parts;
-  
-  // Nối tất cả các text parts hợp lệ
   const textPieces: string[] = [];
   for (const part of parts) {
     if (part.text) {
@@ -664,26 +661,21 @@ function extractTextFromCandidate(candidate: any): string {
   return textPieces.join('\n').trim();
 }
 
-// Bóc tách JSON Object an toàn tuyệt đối từ phản hồi của AI
 function parseJsonObjectSafely(rawText: string): any {
   if (!rawText || typeof rawText !== 'string') return {};
-
   let text = rawText.trim();
 
-  // 1. Thử parse trực tiếp
   try {
     const direct = JSON.parse(text);
     if (direct && typeof direct === 'object') return direct;
   } catch {}
 
-  // 2. Làm sạch markdown code block (```json ... ```)
   text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
   try {
     const cleaned = JSON.parse(text);
     if (cleaned && typeof cleaned === 'object') return cleaned;
   } catch {}
 
-  // 3. Tìm vùng chứa JSON từ '{' đầu tiên đến '}' cuối cùng
   const firstBrace = text.indexOf('{');
   const lastBrace = text.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -697,7 +689,6 @@ function parseJsonObjectSafely(rawText: string): any {
   return {};
 }
 
-// Chuẩn hóa và map dữ liệu phân tích code (chống rỗng UI)
 function normalizeAnalysisResult(raw: any) {
   if (!raw || typeof raw !== 'object') {
     return {
@@ -713,13 +704,11 @@ function normalizeAnalysisResult(raw: any) {
     };
   }
 
-  // Map linh hoạt cả camelCase lẫn snake_case
   const timeComplexity = raw.timeComplexity || raw.time_complexity || raw.time || raw.complexity || "O(n)";
   const spaceComplexity = raw.spaceComplexity || raw.space_complexity || raw.space || raw.auxiliary_space || "O(1)";
   const isOptimal = raw.isOptimal !== undefined ? Boolean(raw.isOptimal) : (raw.is_optimal !== undefined ? Boolean(raw.is_optimal) : true);
   const spaceType = raw.spaceType || raw.space_type || (spaceComplexity.includes("1") ? "Tại chỗ (In-place)" : "Bộ nhớ phụ trợ");
 
-  // Chuẩn hóa Dry Run Steps
   let rawSteps = raw.dryRunSteps || raw.dry_run_steps || raw.steps || raw.trace || [];
   if (!Array.isArray(rawSteps)) rawSteps = [];
   const dryRunSteps = rawSteps.map((s: any, idx: number) => ({
@@ -728,7 +717,6 @@ function normalizeAnalysisResult(raw: any) {
     variables: String(s.variables || s.vars || s.state || s.values || '')
   }));
 
-  // Chuẩn hóa Warnings, Optimizations, Edge Cases
   const warnings = Array.isArray(raw.warnings) ? raw.warnings : (Array.isArray(raw.risks) ? raw.risks : []);
   const optimizations = Array.isArray(raw.optimizations) ? raw.optimizations : (Array.isArray(raw.improvements) ? raw.improvements : []);
   const edgeCases = Array.isArray(raw.edgeCases) ? raw.edgeCases : (Array.isArray(raw.edge_cases) ? raw.edge_cases : []);
@@ -749,7 +737,6 @@ function normalizeAnalysisResult(raw: any) {
 
 function parseJsonArraySafely(rawText: string): any[] {
   if (!rawText || typeof rawText !== 'string') return [];
-
   let text = rawText.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
 
   try {
@@ -971,7 +958,8 @@ async function callGemini(apiKey: string, payload: any, timeoutMs: number = 1500
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-      const url = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){model}:generateContent?key=${apiKey}`;
+      // Cú pháp nội suy chuỗi Template Literal chuẩn xác bằng dấu backtick
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
