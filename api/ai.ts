@@ -635,10 +635,9 @@
 //   }
 // }
 
-
 /**
  * Vercel Serverless Function: /api/ai
- * Ultra-Fast AI Assistant Engine powered by Gemini Flash / Pro
+ * Ultra-Fast AI Assistant Engine powered by Gemini Flash
  * Supports:
  * - PARSE_SCHEDULE (Personal student schedule vision extraction)
  * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
@@ -646,7 +645,7 @@
  */
 
 export const config = {
-  maxDuration: 60, // Kéo dài thời gian thực thi lên tối đa 60 giây trên Vercel
+  maxDuration: 60,
 };
 
 function parseJsonArraySafely(rawText: string): any[] {
@@ -699,7 +698,6 @@ function parseJsonArraySafely(rawText: string): any[] {
   return extractedObjects;
 }
 
-// High-precision sanitization and normalization for university course sections
 function isHeaderOrNoiseString(val: string): boolean {
   if (!val || typeof val !== 'string') return true;
   const upper = val.trim().toUpperCase();
@@ -728,7 +726,6 @@ function cleanLecturerName(raw: any): string {
     .replace(/\s+/g, ' ')
     .trim();
 
-  // Reject garbage/placeholder words
   const lower = str.toLowerCase();
   if (
     !str ||
@@ -783,7 +780,6 @@ function cleanRoomName(raw: any): string {
 function healCourseCode(raw: string): string {
   if (!raw) return '';
   let code = raw.trim().toUpperCase().replace(/[\s\-_.]+/g, '');
-  // Fix common OCR misrecognitions (CONF -> COMP, C0MP -> COMP, ITEC, MATH)
   code = code
     .replace(/^CONF/i, 'COMP')
     .replace(/^C0MP/i, 'COMP')
@@ -813,12 +809,6 @@ function parseJsonObjectSafely(rawText: string): any {
   return {};
 }
 
-/**
- * Strict normalizer & validator for master schedule sections.
- * Enforces extraction completeness: MUST have valid courseName, courseCode/classCode,
- * valid dayOfWeek (2..8), valid start/end periods (1..12), valid lecturer, and valid room.
- * Drops all corrupted, incomplete, or header noise items.
- */
 function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string): any[] {
   if (!Array.isArray(rawList)) return [];
 
@@ -829,13 +819,11 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
     const item = rawList[idx];
     if (!item || typeof item !== 'object') continue;
 
-    // 1. Course Name (MUST BE VALID & NOT HEADER NOISE)
     let courseName = String(item.courseName ?? item.tenHocPhan ?? item.tenHp ?? item.tenMh ?? item.tenMon ?? item.subjectName ?? '').trim();
     if (!courseName || courseName.length < 2 || isHeaderOrNoiseString(courseName)) {
       continue;
     }
 
-    // 2. Course Code & Class Code
     let rawCourseCode = String(item.courseCode ?? item.maHocPhan ?? item.maHp ?? item.maMh ?? item.maMon ?? item.subjectCode ?? '').trim();
     let rawClassCode = String(item.classCode ?? item.maLopHocPhan ?? item.maLhp ?? item.maLop ?? '').trim();
 
@@ -865,7 +853,6 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
       classCode = `2511${courseCode}${groupSuffix}`;
     }
 
-    // 3. Day of week (MUST BE 2..8)
     let day = item.dayOfWeek ?? item.thu ?? item.day ?? item.thuHoc ?? null;
     if (typeof day === 'string') {
       const lower = day.toLowerCase().trim();
@@ -883,7 +870,6 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
       continue;
     }
 
-    // 4. Periods (MUST BE 1..12 and start <= end)
     let start = Number(item.startPeriod ?? item.tietBatDau ?? item.tietBd ?? item.tiet_bd ?? item.tietStart ?? 0);
     let end = Number(item.endPeriod ?? item.tietKetThuc ?? item.tietKt ?? item.tiet_kt ?? item.tietEnd ?? 0);
 
@@ -906,21 +892,18 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
       end = start + 2;
     }
 
-    // 5. Lecturer (MUST BE PRESENT & VALID)
     const rawLecturer = item.lecturer ?? item.giangVien ?? item.cbgd ?? item.canBoGiangDay ?? item.hoTenGv ?? item.gv ?? '';
     const lecturer = cleanLecturerName(rawLecturer);
     if (!lecturer) {
       continue;
     }
 
-    // 6. Room (MUST BE PRESENT & VALID)
     const rawRoom = item.room ?? item.phongHoc ?? item.phongMay ?? item.lab ?? item.phong ?? '';
     const room = cleanRoomName(rawRoom);
     if (!room) {
       continue;
     }
 
-    // Class type detection
     const rawType = String(item.classType ?? item.loaiHocPhan ?? item.loaiLhp ?? item.loaiLop ?? '').toUpperCase();
     const isTH = item.isLab === true || rawType.includes('TH') || rawType.includes('LAB') || rawGroup.toUpperCase().includes('TH') || classCode.toUpperCase().includes('TH') || classCode.toUpperCase().includes('LAB') || room.toUpperCase().includes('LAB') || room.toUpperCase().includes('PM');
     const classType = isTH ? 'TH' : 'LT';
@@ -929,7 +912,6 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
     const weeks = String(item.weeks ?? item.tuanHoc ?? item.tuan ?? '1-15').trim() || '1-15';
     const sourceFile = item.sourceFile || defaultSourceFile || undefined;
 
-    // Deduplication key
     const uniqueKey = `${courseCode}__${classCode}__${dayNum}__${start}__${end}`;
     if (seenKey.has(uniqueKey)) continue;
     seenKey.add(uniqueKey);
@@ -956,9 +938,6 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
   return results;
 }
 
-/**
- * Strict normalizer & validator for personal schedule items.
- */
 function normalizePersonalSchedule(rawList: any[]): any[] {
   if (!Array.isArray(rawList)) return [];
   const palette = ['indigo', 'blue', 'emerald', 'teal', 'purple', 'amber', 'rose', 'cyan'];
@@ -982,50 +961,42 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Ultra-fast call to Gemini REST API with candidate model fallback
+ * Gọi siêu tốc đến Gemini API với giới hạn thời gian (Timeout 8s)
  */
-async function callGeminiRestAPI(apiKey: string, payload: any): Promise<string> {
-  const candidateModels = [
-    'gemini-2.5-flash',
-    'gemini-3.7-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-2.5-pro'
-  ];
-
+async function callGeminiFast(apiKey: string, payload: any): Promise<string> {
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
   let lastError: any = null;
 
-  for (const model of candidateModels) {
+  for (const model of models) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000); // Ngắt ngay sau 8s nếu model bị nghẽn
+
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
       const data = await response.json();
 
       if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
         return data.candidates[0].content.parts[0].text;
       }
 
-      const errMsg = data?.error?.message || `HTTP ${response.status} from ${model}`;
-      lastError = new Error(errMsg);
-
-      if (response.status === 404 || response.status === 429 || response.status === 503) {
-        continue;
-      }
+      lastError = new Error(data?.error?.message || `HTTP ${response.status} from ${model}`);
     } catch (err: any) {
       lastError = err;
     }
   }
 
-  throw lastError || new Error('Không thể kết nối đến Gemini API.');
+  throw lastError || new Error('Không thể kết nối đến máy chủ AI.');
 }
 
 export default async function handler(req: any, res: any) {
-  // Set CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -1046,7 +1017,7 @@ export default async function handler(req: any, res: any) {
   if (!apiKey) {
     return res.status(500).json({
       success: false,
-      error: 'Chưa cấu hình GEMINI_API_KEY trên môi trường máy chủ. Vui lòng thiết lập biến môi trường GEMINI_API_KEY.'
+      error: 'Chưa cấu hình GEMINI_API_KEY trên môi trường máy chủ.'
     });
   }
 
@@ -1057,28 +1028,14 @@ export default async function handler(req: any, res: any) {
     const payload = body.payload || body;
 
     // =========================================================================
-    // 1. PERSONAL STUDENT SCHEDULE VISION EXTRACTION (PARSE_SCHEDULE)
+    // 1. PERSONAL SCHEDULE EXTRACTION (PARSE_SCHEDULE)
     // =========================================================================
     if (action === 'PARSE_SCHEDULE' || rawAction === 'parseSchedule') {
       const { imageBase64, fileBase64, mimeType, textData } = payload || {};
       const fileData = fileBase64 || imageBase64;
       const detectedMimeType = mimeType || 'image/jpeg';
 
-      const systemInstruction = `Bạn là Chuyên gia Vision & Trích xuất Dữ liệu Thời khóa biểu cá nhân của sinh viên từ mọi định dạng: Ảnh chụp màn hình cổng đào tạo, bảng lưới ma trận tuần (Weekly Matrix Grid), phiếu đăng ký môn học (PDF/Ảnh), ảnh chụp điện thoại.
-
-QUY TẮC TRÍCH XUẤT CHÍNH XÁC 100%:
-1. DẠNG LƯỚI TUẦN (Weekly Matrix Grid): Đọc từng ô học phần theo Cột (Thứ 2 đến Thứ 7, Chủ Nhật) và Hàng (Tiết 1-12 hoặc Buổi Sáng/Chiều/Tối).
-   - Thứ: 2 (Thứ Hai), 3 (Thứ Ba), 4 (Thứ Tư), 5 (Thứ Năm), 6 (Thứ Sáu), 7 (Thứ Bảy), 8 (Chủ Nhật).
-   - Tiết học: Trích xuất chính xác startPeriod (1-12) và endPeriod (1-12).
-2. DẠNG DANH SÁCH / BẢNG TỔNG HỢP: Đọc từng dòng môn học:
-   - Tên môn học (subjectName): Tên đầy đủ.
-   - Mã học phần (subjectCode): Mã học phần (ví dụ: "COMP1017", "MATH1001").
-   - Mã lớp học phần (classCode): Mã lớp cụ thể (ví dụ: "2511COMP101701").
-   - Phòng học (room): Phòng thực tế (ví dụ: "D.207", "A.301", "PM3", "Online").
-   - Giảng viên (lecturer): BẮT BUỘC trích xuất họ tên và học hàm/học vị.
-   - isLab: true nếu là lớp thực hành / phòng máy / lab, false nếu lý thuyết.
-
-SCHEMA ĐẦU RA (JSON Array thuần túy):
+      const systemInstruction = `Trích xuất dữ liệu Thời khóa biểu cá nhân sang JSON Array:
 [
   {
     "subjectName": "Cơ sở dữ liệu",
@@ -1097,22 +1054,17 @@ SCHEMA ĐẦU RA (JSON Array thuần túy):
 
       const parts: any[] = [];
       if (fileData) {
-        const cleanBase64 = fileData.replace(/^data:[^;]+;base64,/, '');
         parts.push({
           inlineData: {
             mimeType: detectedMimeType,
-            data: cleanBase64
+            data: fileData.replace(/^data:[^;]+;base64,/, '')
           }
         });
-        parts.push({
-          text: 'Trích xuất toàn bộ các môn học trong ảnh thời khóa biểu này sang mảng JSON theo schema. Không thêm môn không có trong ảnh.'
-        });
+        parts.push({ text: 'Trích xuất toàn bộ môn học trong ảnh sang mảng JSON.' });
       } else if (textData) {
-        parts.push({
-          text: `Trích xuất lịch học từ văn bản sau (chỉ trích xuất các môn có trong văn bản):\n${textData}`
-        });
+        parts.push({ text: `Trích xuất lịch học từ văn bản sau:\n${textData}` });
       } else {
-        return res.status(400).json({ success: false, error: 'Thiếu dữ liệu tệp hoặc văn bản thời khóa biểu' });
+        return res.status(400).json({ success: false, error: 'Thiếu dữ liệu thời khóa biểu' });
       }
 
       const geminiPayload = {
@@ -1121,27 +1073,24 @@ SCHEMA ĐẦU RA (JSON Array thuần túy):
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-          thinkingConfig: {
-            thinkingBudget: 0
-          }
+          maxOutputTokens: 4096,
+          responseMimeType: 'application/json'
         }
       };
 
-      const responseText = await callGeminiRestAPI(apiKey, geminiPayload);
+      const responseText = await callGeminiFast(apiKey, geminiPayload);
       const parsedData = parseJsonArraySafely(responseText);
       const normalizedData = normalizePersonalSchedule(parsedData);
 
       return res.status(200).json({
         success: true,
         data: normalizedData,
-        message: `Đã nhận diện thành công ${normalizedData.length} môn học từ thời khóa biểu`
+        message: `Đã nhận diện thành công ${normalizedData.length} môn học`
       });
     }
 
     // =========================================================================
-    // 2. MASTER SCHEDULE RELATIONAL JOIN PARSER (PARSE_MASTER_SCHEDULE)
+    // 2. MASTER SCHEDULE RELATIONAL JOIN (PARSE_MASTER_SCHEDULE)
     // =========================================================================
     if (action === 'PARSE_MASTER_SCHEDULE' || rawAction === 'parseMasterSchedule') {
       const { imageBase64, fileBase64, mimeType, fileName, textData, customPrompt, universityPreset } = payload || {};
@@ -1151,16 +1100,10 @@ SCHEMA ĐẦU RA (JSON Array thuần túy):
       const presetText = universityPreset ? `Quy chuẩn trường: ${universityPreset}.` : '';
       const promptText = customPrompt ? `YÊU CẦU BỔ SUNG: ${customPrompt}` : '';
 
-      const systemInstruction = `Bạn là chuyên gia xử lý và ghép nối dữ liệu Thời khóa biểu đại học từ tài liệu nhiều cột phân tách.
-NHIỆM VỤ: Trích xuất CHÍNH XÁC và DUY NHẤT các lớp học phần và buổi học có trong tài liệu được cung cấp.
-TUYỆT ĐỐI CẤM BỊA ĐẶT / SUY DIỄN: Chỉ trích xuất các mục có thực trong tài liệu. Không thêm bất kỳ môn học nào ngoài tài liệu.
+      const systemInstruction = `Trích xuất các lớp học phần từ tài liệu thời khóa biểu sang JSON Array:
 ${presetText}
 ${promptText}
-
-RÀNG BUỘC GHÉP NỐI QUAN HỆ: Dùng STT hoặc Mã LHP làm khóa chính JOIN chính xác:
-STT, courseCode (Mã HP), classCode (Mã LHP), courseName (Tên môn), dayOfWeek (2-8, CN là 8), startPeriod (1-12), endPeriod (1-12), room (Phòng), lecturer (Giảng viên), classType ("LT" hoặc "TH"), group ("Lớp 01", "Nhóm TH 01").
-
-SCHEMA ĐẦU RA (JSON Array thuần túy):
+SCHEMA:
 [
   {
     "stt": 1,
@@ -1180,20 +1123,15 @@ SCHEMA ĐẦU RA (JSON Array thuần túy):
 
       const parts: any[] = [];
       if (fileData) {
-        const cleanBase64 = fileData.replace(/^data:[^;]+;base64,/, '');
         parts.push({
           inlineData: {
             mimeType: detectedMimeType,
-            data: cleanBase64
+            data: fileData.replace(/^data:[^;]+;base64,/, '')
           }
         });
-        parts.push({
-          text: 'Trích xuất chính xác các lớp học phần trong tài liệu thời khóa biểu này sang JSON Array. Không tự suy diễn môn ngoài tài liệu.'
-        });
+        parts.push({ text: 'Trích xuất chính xác các lớp học phần sang JSON Array.' });
       } else if (textData) {
-        parts.push({
-          text: `Trích xuất danh mục thời khóa biểu từ văn bản sau:\n${textData}`
-        });
+        parts.push({ text: `Trích xuất danh mục thời khóa biểu từ văn bản:\n${textData}` });
       } else {
         return res.status(400).json({ success: false, error: 'Thiếu dữ liệu thời khóa biểu' });
       }
@@ -1204,27 +1142,24 @@ SCHEMA ĐẦU RA (JSON Array thuần túy):
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-          thinkingConfig: {
-            thinkingBudget: 0
-          }
+          maxOutputTokens: 4096,
+          responseMimeType: 'application/json'
         }
       };
 
-      const responseText = await callGeminiRestAPI(apiKey, geminiPayload);
+      const responseText = await callGeminiFast(apiKey, geminiPayload);
       const parsedData = parseJsonArraySafely(responseText);
       const normalizedData = normalizeExtractedSections(parsedData, fileName);
 
       return res.status(200).json({
         success: true,
         data: normalizedData,
-        message: `Đã trích xuất thành công ${normalizedData.length} lớp học phần từ tài liệu`
+        message: `Đã trích xuất thành công ${normalizedData.length} lớp học phần`
       });
     }
 
     // =========================================================================
-    // 3. COMPILER-GRADE ALGORITHM & BIG-O ANALYZER (EXPLAIN_CODE)
+    // 3. SIÊU TỐC: PHÂN TÍCH THUẬT TOÁN & BIG-O (EXPLAIN_CODE) (~2-3 giây)
     // =========================================================================
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
@@ -1232,42 +1167,30 @@ SCHEMA ĐẦU RA (JSON Array thuần túy):
         return res.status(400).json({ success: false, error: 'Thiếu mã nguồn cần phân tích' });
       }
 
-      const systemInstruction = `Bạn là Trợ lý Chuyên gia Phân tích Thuật toán & Trình biên dịch C++/Python/Java của HCMUE-FIT StudyVault.
-Nhiệm vụ: Phân tích CHÍNH XÁC mã nguồn ${language || 'C++'}, trace biến theo test case thực tế, tính toán độ phức tạp chuẩn xác và cảnh báo rủi ro thực tế.
-
-MÃ NGUỒN CẦN PHÂN TÍCH:
+      const systemInstruction = `Bạn là Trợ lý Chuyên gia Phân tích Thuật toán & Trình biên dịch C++/Python/Java của FIT HCMUE.
+Phân tích CHÍNH XÁC mã nguồn ${language || 'C++'} sau:
 \`\`\`${language || 'cpp'}
 ${code}
 \`\`\`
 
-YÊU CẦU PHÂN TÍCH CHUYÊN SÂU:
-1. timeComplexity: Độ phức tạp thời gian trường hợp xấu nhất (Worst-case Big-O). Phân tích đúng theo số phép toán/đệ quy (VD: O(log n), O(n log n), O(V + E), O(n²)).
-2. spaceComplexity: Độ phức tạp bộ nhớ phụ trợ (Auxiliary Space: stack đệ quy, mảng phụ, vector/queue). Không tính mảng đầu vào nếu truyền tham chiếu.
-3. isOptimal: boolean (true nếu đã đạt độ phức tạp tối ưu, false nếu còn cách giải tối ưu hơn).
-4. spaceType: Chuỗi mô tả (VD: "Tại chỗ (In-place)", "Bộ nhớ phụ trợ O(n)", "Ngăn xếp đệ quy O(log n)").
-5. dryRunSteps: Mảng gồm 3-5 bước thực thi logic then chốt:
-   - BẮT BUỘC tự chọn 1 test case đầu vào nhỏ, cụ thể (VD: arr = [2, 5, 8, 12], target = 8 hoặc n = 4).
-   - "step": Số nguyên thứ tự bước (1, 2, 3...).
-   - "desc": Mô tả hành động thực thi tại bước này kèm giá trị tính toán.
-   - "variables": Chuỗi biểu diễn giá trị cụ thể của các biến tại bước đó (VD: "left: 0, right: 3, mid: 1, arr[mid]: 5 < 8").
-6. warnings: Mảng cảnh báo các lỗi tiềm ẩn thực tế (Tràn số nguyên khi tính trung vị, thiếu điều kiện biên, tràn mảng, rò rỉ bộ nhớ, lặp vô tận).
-7. optimizations: Mảng gợi ý tối ưu (Sử dụng Bitwise, tối ưu thư viện chuẩn STL, giảm bộ nhớ đệm).
-8. edgeCases: Mảng các trường hợp biên cần kiểm thử (Mảng rỗng, 1 phần tử, phần tử nằm ở vị trí đầu/cuối, tất cả phần tử trùng nhau).
-9. summary: Tóm tắt nhận xét giải thuật ngắn gọn trong 1-2 câu.
+YÊU CẦU:
+1. timeComplexity: Worst-case Big-O chính xác (VD: O(log n), O(n log n), O(V + E)).
+2. spaceComplexity: Auxiliary Space (VD: O(1), O(n)).
+3. isOptimal: boolean (true/false).
+4. spaceType: Chuỗi mô tả (VD: "Tại chỗ (In-place)").
+5. dryRunSteps: 3-4 bước chạy với 1 test case cụ thể (VD: arr = [2, 5, 8, 12], target = 8). Cột variables ghi rõ giá trị các biến.
+6. warnings: Các lỗi tiềm ẩn thực tế (tràn số, vượt biên mảng, lặp vô tận).
+7. optimizations: Gợi ý tối ưu hiệu năng hoặc STL.
+8. edgeCases: Trường hợp biên (mảng rỗng, 1 phần tử, đầu/cuối).
+9. summary: Tóm tắt nhận xét giải thuật ngắn gọn trong 1 câu.
 
-BẮT BUỘC TRẢ VỀ DUY NHẤT MỘT JSON OBJECT THEO SCHEMA:
+TRẢ VỀ DUY NHẤT JSON OBJECT:
 {
   "timeComplexity": "O(...)",
   "spaceComplexity": "O(...)",
   "isOptimal": true,
   "spaceType": "...",
-  "dryRunSteps": [
-    {
-      "step": 1,
-      "desc": "...",
-      "variables": "..."
-    }
-  ],
+  "dryRunSteps": [{"step": 1, "desc": "...", "variables": "..."}],
   "warnings": ["..."],
   "optimizations": ["..."],
   "edgeCases": ["..."],
@@ -1278,22 +1201,19 @@ BẮT BUỘC TRẢ VỀ DUY NHẤT MỘT JSON OBJECT THEO SCHEMA:
         contents: [
           {
             role: 'user',
-            parts: [{ text: `Phân tích thuật toán đoạn mã ${language || 'lập trình'} này theo yêu cầu:\n\n${code}` }]
+            parts: [{ text: `Phân tích thuật toán mã nguồn ${language || 'lập trình'}:\n\n${code}` }]
           }
         ],
         systemInstruction: { parts: [{ text: systemInstruction }] },
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 2500,
-          responseMimeType: 'application/json',
-          thinkingConfig: {
-            thinkingBudget: 0
-          }
+          maxOutputTokens: 1500, // Tối ưu để AI phản hồi ngay trong 2-3s
+          responseMimeType: 'application/json'
         }
       };
 
-      const responseText = await callGeminiRestAPI(apiKey, geminiPayload);
+      const responseText = await callGeminiFast(apiKey, geminiPayload);
       const parsedData = parseJsonObjectSafely(responseText);
 
       return res.status(200).json({
@@ -1303,7 +1223,7 @@ BẮT BUỘC TRẢ VỀ DUY NHẤT MỘT JSON OBJECT THEO SCHEMA:
       });
     }
 
-    return res.status(400).json({ success: false, error: 'Hành động không hợp lệ (Invalid action)' });
+    return res.status(400).json({ success: false, error: 'Hành động không hợp lệ' });
   } catch (error: any) {
     console.error('Gemini API Error:', error);
     return res.status(500).json({
@@ -1312,5 +1232,3 @@ BẮT BUỘC TRẢ VỀ DUY NHẤT MỘT JSON OBJECT THEO SCHEMA:
     });
   }
 }
-
-
