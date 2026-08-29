@@ -286,10 +286,6 @@ export interface ParseScheduleResponse {
   error?: string;
 }
 
-/**
- * Phân tích thuật toán và độ phức tạp Big-O (Trợ Lý Code)
- * Đẩy qua Serverless Function /api/ai
- */
 export async function explainCodeAI(
   params: ExplainCodeParams
 ): Promise<ExplainCodeResponse> {
@@ -315,7 +311,7 @@ export async function explainCodeAI(
     const result = await response.json();
 
     if (!response.ok || !result.success) {
-      throw new Error(result.error || `Máy chủ phản hồi mã lỗi (${response.status})`);
+      throw new Error(result.error || `Lỗi máy chủ (${response.status})`);
     }
 
     if (result.success && result.data) {
@@ -332,9 +328,6 @@ export async function explainCodeAI(
   }
 }
 
-/**
- * Trích xuất danh mục lớp học phần Thời khóa biểu (AiSchedulePage)
- */
 export async function parseMasterScheduleAI(
   params: ParseScheduleParams
 ): Promise<ParseScheduleResponse> {
@@ -375,9 +368,6 @@ export async function parseMasterScheduleAI(
   }
 }
 
-/**
- * Trích xuất Thời khóa biểu cá nhân của sinh viên
- */
 export async function parsePersonalScheduleAI(
   params: ParseScheduleParams
 ): Promise<{ success: boolean; data: any[]; message?: string }> {

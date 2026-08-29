@@ -358,8 +358,6 @@
 // };
 
 
-
-
 import React, { useState } from 'react';
 import { Bot, Sparkles, ShieldAlert, CheckCircle2, Zap, HelpCircle, Layers, Code } from 'lucide-react';
 import { CodeEditor } from '../components/CodeEditor';
@@ -367,7 +365,6 @@ import { explainCodeAI } from '../services/aiService';
 import { CodeAnalysisResult } from '../types';
 import { useToast } from '../context/ToastContext';
 
-// Helper to render markdown inline code ticks `code`
 const renderFormattedText = (text: string) => {
   if (!text) return null;
   const parts = text.split(/(`[^`]+`)/g);
@@ -401,14 +398,14 @@ int binarySearch(const vector<int>& arr, int target) {
         int mid = left + (right - left) / 2;
         
         if (arr[mid] == target) {
-            return mid; // Tìm thấy phần tử
+            return mid;
         } else if (arr[mid] < target) {
-            left = mid + 1; // Tìm ở nửa bên phải
+            left = mid + 1;
         } else {
-            right = mid - 1; // Tìm ở nửa bên trái
+            right = mid - 1;
         }
     }
-    return -1; // Không tìm thấy
+    return -1;
 }`);
 
   const [language, setLanguage] = useState<string>('cpp');
@@ -429,39 +426,26 @@ int binarySearch(const vector<int>& arr, int target) {
       },
       {
         step: 2,
-        desc: "Vòng lặp `while (left <= right)`: Tính điểm giữa `mid = left + (right - left) / 2` để tránh tràn số nguyên (Integer Overflow)",
+        desc: "Tính điểm giữa `mid = left + (right - left) / 2` để tránh tràn số nguyên",
         variables: "mid: 4, arr[mid]: 5 < 7"
       },
       {
         step: 3,
-        desc: "Phần tử giữa nhỏ hơn mục tiêu, thu hẹp không gian tìm kiếm sang nửa phải: `left = mid + 1`",
+        desc: "Thu hẹp không gian tìm kiếm sang nửa phải: `left = mid + 1`",
         variables: "left: 5, right: 9"
-      },
-      {
-        step: 4,
-        desc: "Tính lại `mid = 5 + (9 - 5) / 2 = 7`. Kiểm tra `arr[7] == target` -> Khớp thành công!",
-        variables: "mid: 7, arr[7]: 7"
-      },
-      {
-        step: 5,
-        desc: "Trả về chỉ số `7` kết thúc thành công với độ phức tạp thời gian logarit tối ưu.",
-        variables: "return 7"
       }
     ],
     warnings: [
-      "Cảnh báo rủi ro tràn số nguyên (Integer Overflow) khi tính `(left + right) / 2` nếu mảng có kích thước cực lớn vượt 2³¹-1.",
-      "Thuật toán chỉ hoạt động chính xác khi mảng đầu vào đã được sắp xếp tăng dần."
+      "Mảng đầu vào bắt buộc phải được sắp xếp tăng dần."
     ],
     optimizations: [
-      "Có thể thay phép chia `/ 2` bằng phép dịch bit phải `((right - left) >> 1)` để tối ưu tốc độ vi kiến trúc CPU.",
-      "Cân nhắc dùng `std::lower_bound` trong thư viện chuẩn C++ STL."
+      "Có thể thay phép chia `/ 2` bằng phép dịch bit `>> 1`."
     ],
     edgeCases: [
-      "Mảng rỗng (size = 0) -> Dừng ngay tại điều kiện vòng lặp, trả về -1.",
-      "Target nằm ở vị trí biên đầu tiên (index 0) hoặc cuối cùng (index n-1).",
-      "Mảng có tất cả các phần tử giống nhau."
+      "Mảng rỗng (size = 0).",
+      "Phần tử nằm ở vị trí đầu tiên hoặc cuối cùng."
     ],
-    summary: "Đoạn mã hiện thực thuật toán Tìm kiếm Nhị phân (Binary Search) đạt chuẩn tối ưu về thời gian và bộ nhớ cho sinh viên CNTT."
+    summary: "Thuật toán Tìm kiếm Nhị phân đạt chuẩn tối ưu về thời gian thực thi."
   });
 
   const handleAnalyze = async () => {
@@ -492,16 +476,11 @@ int binarySearch(const vector<int>& arr, int target) {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
-      {/* Header */}
       <div className="p-6 rounded-2xl bg-gradient-to-r from-slate-50 to-white dark:from-[#131b2e] dark:to-[#0f172a] border border-slate-200 dark:border-slate-700/60 shadow-xs transition-colors duration-200">
         <div>
           <nav className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 mb-1.5 font-mono">
             <button
-              onClick={() => {
-                if (typeof onNavigate === 'function') {
-                  onNavigate('/');
-                }
-              }}
+              onClick={() => onNavigate && onNavigate('/')}
               className="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
             >
               Trang chủ
@@ -521,7 +500,6 @@ int binarySearch(const vector<int>& arr, int target) {
         </div>
       </div>
 
-      {/* Code Editor Section */}
       <div className="flex flex-col space-y-3 w-full">
         <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 px-1 font-mono">
           <span className="font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -540,7 +518,6 @@ int binarySearch(const vector<int>& arr, int target) {
         />
       </div>
 
-      {/* AI Analysis Panel */}
       <div className="space-y-5 w-full pt-2">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
           <div className="flex items-center gap-2.5">
@@ -562,7 +539,6 @@ int binarySearch(const vector<int>& arr, int target) {
           )}
         </div>
 
-        {/* Top Metric Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="p-5 rounded-2xl bg-white dark:bg-[#131b2e] border border-slate-200 dark:border-slate-800 shadow-sm space-y-2">
             <div className="flex items-center justify-between">
@@ -599,7 +575,6 @@ int binarySearch(const vector<int>& arr, int target) {
           </div>
         </div>
 
-        {/* Details Panel */}
         <div className="p-5 md:p-6 rounded-2xl bg-white dark:bg-[#131b2e] border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
           <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-3">
             {[

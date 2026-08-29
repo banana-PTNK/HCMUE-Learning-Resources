@@ -650,11 +650,22 @@
  * Gemini 3.6 Flash Engine - Compiler-grade Big-O & Schedule Parser
  */
 
+/**
+ * Vercel Serverless Function: /api/ai
+ * Safe URL Assembly & Compiler-Grade Big-O Analyzer
+ */
+
 export const config = {
   maxDuration: 60,
 };
 
 const MAX_CODE_LENGTH = 100 * 1024;
+
+// Tách rời URL thành các chuỗi tĩnh độc lập để chống 100% việc tự convert sang Markdown link
+const API_SCHEME = 'https://';
+const API_HOST = 'generativelanguage.googleapis.com';
+const API_PATH = '/v1beta/models/';
+const API_ACTION = ':generateContent';
 
 function extractTextFromCandidate(candidate: any): string {
   if (!candidate?.content?.parts) return '';
@@ -937,10 +948,13 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Gọi Google Gemini API bằng chuỗi chuẩn không chứa dấu ngoặc markdown
+ * Gọi Google Gemini API với URL được ghép an toàn
  */
 async function callGemini(rawApiKey: string, payload: any): Promise<string> {
-  const apiKey = String(rawApiKey || '').trim().replace(/[^\x20-\x7E]/g, '');
+  const apiKey = String(rawApiKey || '')
+    .trim()
+    .replace(/[\r\n\t\s\[\]\(\)]/g, '');
+
   if (!apiKey) {
     throw new Error('Chưa cấu hình GEMINI_API_KEY trên Vercel.');
   }
@@ -956,8 +970,7 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
 
   for (const model of candidateModels) {
     try {
-      // Ghép chuỗi URL thuần túy bằng toán tử +
-      const endpoint = '[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)' + model + ':generateContent';
+      const endpoint = API_SCHEME + API_HOST + API_PATH + model + API_ACTION;
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -988,7 +1001,7 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
 
       throw new Error(lastErrorMsg);
     } catch (err: any) {
-      lastErrorMsg = err.message || 'Lỗi kết nối';
+      lastErrorMsg = err.message || 'Lỗi kết nối máy chủ AI';
     }
   }
 
@@ -1036,22 +1049,8 @@ export default async function handler(req: any, res: any) {
       const fileData = fileBase64 || imageBase64;
       const detectedMimeType = mimeType || 'image/jpeg';
 
-      const systemInstruction = `Trích xuất dữ liệu Thời khóa biểu cá nhân sang JSON Array:
-[
-  {
-    "subjectName": "Cơ sở dữ liệu",
-    "subjectCode": "COMP1017",
-    "classCode": "2511COMP101701",
-    "classGroup": "Lớp 01",
-    "dayOfWeek": 2,
-    "startPeriod": 1,
-    "endPeriod": 3,
-    "room": "D.207",
-    "lecturer": "TS. Nguyễn Trần Phi Phượng",
-    "isLab": false,
-    "weeks": "1-15"
-  }
-]`;
+      const systemInstruction = 'Trích xuất dữ liệu Thời khóa biểu cá nhân sang JSON Array:\n' +
+        '[\n  {\n    "subjectName": "Cơ sở dữ liệu",\n    "subjectCode": "COMP1017",\n    "classCode": "2511COMP101701",\n    "classGroup": "Lớp 01",\n    "dayOfWeek": 2,\n    "startPeriod": 1,\n    "endPeriod": 3,\n    "room": "D.207",\n    "lecturer": "TS. Nguyễn Trần Phi Phượng",\n    "isLab": false,\n    "weeks": "1-15"\n  }\n]';
 
       const parts: any[] = [];
       if (fileData) {
