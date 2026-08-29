@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { Sparkles, Copy, Check, Upload, ClipboardPaste, Trash2, Palette } from 'lucide-react';
+import { Sparkles, Copy, Check, Upload, ClipboardPaste, Trash2, Palette, X } from 'lucide-react';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-c';
@@ -170,51 +170,6 @@ export const EDITOR_THEMES: Record<string, EditorTheme> = {
   }
 };
 
-const CPP_KEYWORDS = new Set([
-  'using', 'namespace', 'return', 'if', 'else', 'while', 'for', 'do',
-  'switch', 'case', 'break', 'continue', 'const', 'static', 'auto',
-  'new', 'delete', 'throw', 'try', 'catch', 'template', 'typename',
-  'class', 'struct', 'public', 'private', 'protected', 'virtual',
-  'override', 'true', 'false', 'nullptr', 'this', 'sizeof', 'typedef'
-]);
-
-const CPP_TYPES = new Set([
-  'int', 'long', 'short', 'char', 'float', 'double', 'bool', 'void',
-  'size_t', 'vector', 'string', 'queue', 'priority_queue', 'stack',
-  'deque', 'map', 'unordered_map', 'set', 'unordered_set', 'pair',
-  'tuple', 'array', 'list', 'cin', 'cout', 'endl', 'swap', 'sort',
-  'greater', 'less', 'min', 'max'
-]);
-
-const PYTHON_KEYWORDS = new Set([
-  'def', 'class', 'import', 'from', 'as', 'return', 'if', 'elif', 'else',
-  'for', 'while', 'in', 'is', 'not', 'and', 'or', 'try', 'except',
-  'finally', 'raise', 'with', 'yield', 'lambda', 'pass', 'break',
-  'continue', 'global', 'nonlocal', 'assert', 'None', 'True', 'False', 'self'
-]);
-
-const PYTHON_TYPES = new Set([
-  'int', 'str', 'float', 'bool', 'list', 'dict', 'set', 'tuple',
-  'print', 'len', 'range', 'enumerate', 'zip', 'sum', 'min', 'max',
-  'sorted', 'map', 'filter', 'open', 'input', 'ListNode', 'TreeNode'
-]);
-
-const JAVA_KEYWORDS = new Set([
-  'package', 'import', 'public', 'private', 'protected', 'class',
-  'interface', 'enum', 'extends', 'implements', 'static', 'final',
-  'abstract', 'void', 'return', 'if', 'else', 'while', 'for', 'do',
-  'switch', 'case', 'break', 'continue', 'new', 'this', 'super',
-  'try', 'catch', 'finally', 'throw', 'throws', 'true', 'false', 'null'
-]);
-
-const JAVA_TYPES = new Set([
-  'int', 'long', 'short', 'byte', 'char', 'float', 'double', 'boolean',
-  'String', 'Integer', 'Long', 'Double', 'Character', 'Boolean',
-  'List', 'ArrayList', 'Map', 'HashMap', 'Set', 'HashSet', 'Queue',
-  'LinkedList', 'PriorityQueue', 'System', 'out', 'println', 'Math',
-  'Arrays', 'Collections'
-]);
-
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -315,7 +270,7 @@ function highlightSyntax(rawCode: string, lang: string, theme: EditorTheme): str
   try {
     const tokens = Prism.tokenize(rawCode, grammar);
     return renderPrismTokens(tokens, theme);
-  } catch (e) {
+  } catch {
     return escapeHtml(rawCode);
   }
 }
@@ -491,6 +446,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const highlightRef = useRef<HTMLPreElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleThemeChange = (newThemeId: string) => {
     setThemeId(newThemeId);
@@ -507,7 +463,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Safe Universal Clipboard Paste Handler
   const handlePasteClipboard = async () => {
+    let directPasteSuccess = false;
     try {
       if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
         const text = await navigator.clipboard.readText();
@@ -518,16 +476,22 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             textareaRef.current.focus();
             textareaRef.current.scrollTop = 0;
           }
+          directPasteSuccess = true;
           return;
         }
       }
     } catch {
-      // Clipboard readText is often restricted by browser iframe sandbox policies
+      // Direct clipboard reading blocked by browser permission policy
     }
 
-    // Open quick fallback paste dialog if direct clipboard reading is blocked
-    setIsPasteDialogOpen(true);
-    setPasteDialogText('');
+    // Always pop up the dedicated paste dialog if direct reading didn't occur
+    if (!directPasteSuccess) {
+      setIsPasteDialogOpen(true);
+      setPasteDialogText('');
+      setTimeout(() => {
+        dialogTextareaRef.current?.focus();
+      }, 50);
+    }
   };
 
   const handleConfirmDialogPaste = () => {
@@ -579,7 +543,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         onLanguageChange(detectedLang);
         toast.success(
           `Đã tải lên tệp: ${file.name}`,
-          `Tự động nhận diện ngôn ngữ [${detectedLang.toUpperCase()}] với ${content.split('\n').length} dòng mã.`
+          `Tự động nhận diện [${detectedLang.toUpperCase()}] với ${content.split('\n').length} dòng mã.`
         );
         if (textareaRef.current) {
           textareaRef.current.focus();
@@ -724,7 +688,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Hidden File Input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -733,33 +696,39 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         className="hidden"
       />
 
-      {/* Fallback Paste Dialog (for browsers blocking navigator.clipboard.readText) */}
+      {/* Fallback Paste Dialog Modal */}
       {isPasteDialogOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4">
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          onClick={() => setIsPasteDialogOpen(false)}
+        >
+          <div 
+            className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-white font-bold text-base">
                 <ClipboardPaste className="w-5 h-5 text-indigo-400" />
-                <span>Dán mã nguồn từ Clipboard</span>
+                <span>Khung dán mã nguồn</span>
               </div>
               <button
                 type="button"
                 onClick={() => setIsPasteDialogOpen(false)}
-                className="text-slate-400 hover:text-white text-sm p-1 cursor-pointer"
+                className="text-slate-400 hover:text-white text-sm p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
             <p className="text-xs text-slate-300">
-              Nhấn <strong className="text-indigo-300">Ctrl + V</strong> (hoặc Cmd + V) vào ô bên dưới để nạp mã nguồn vào trình soạn thảo:
+              Nhấn tổ hợp phím <strong className="text-indigo-400 font-mono">Ctrl + V</strong> (hoặc Cmd + V) vào khung dưới đây để nạp mã nguồn:
             </p>
             <textarea
-              autoFocus
+              ref={dialogTextareaRef}
               rows={8}
               value={pasteDialogText}
               onChange={(e) => setPasteDialogText(e.target.value)}
               placeholder="// Dán đoạn mã nguồn của bạn vào đây..."
-              className="w-full p-3 font-mono text-xs rounded-xl bg-slate-950 border border-slate-700 text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none"
+              className="w-full p-3 font-mono text-xs rounded-xl bg-slate-950 border border-slate-700 text-slate-100 placeholder:text-slate-500 focus:outline-hidden focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none"
             />
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
@@ -782,7 +751,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         </div>
       )}
 
-      {/* Drag and Drop Zone Overlay */}
+      {/* Drag & Drop Overlay */}
       {isDraggingFile && (
         <div className="absolute inset-0 z-50 bg-blue-950/95 border-2 border-dashed border-blue-400 rounded-2xl flex flex-col items-center justify-center gap-3 backdrop-blur-md pointer-events-none transition-all">
           <div className="p-4 rounded-full bg-blue-600/30 text-blue-300 animate-bounce">
@@ -804,19 +773,17 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         }}
       >
         <div className="flex items-center flex-wrap gap-2">
-          {/* Traffic light window controls */}
           <div className="flex items-center gap-1.5 mr-2">
             <span className="w-3 h-3 rounded-full bg-rose-500/80" />
             <span className="w-3 h-3 rounded-full bg-amber-500/80" />
             <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
           </div>
 
-          {/* Language Selector */}
           <select
             id="code-language-select"
             value={language}
             onChange={(e) => onLanguageChange(e.target.value)}
-            className="px-2.5 py-1 rounded-lg border text-xs font-medium focus:outline-none cursor-pointer"
+            className="px-2.5 py-1 rounded-lg border text-xs font-medium focus:outline-hidden cursor-pointer"
             style={{
               backgroundColor: currentTheme.bg,
               borderColor: currentTheme.border,
@@ -829,7 +796,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             <option value="javascript">JavaScript / TypeScript</option>
           </select>
 
-          {/* Theme Selector with Palette Icon */}
           <div className="flex items-center gap-1.5">
             <div
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer"
@@ -840,22 +806,18 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
               }}
             >
               <Palette className="w-3.5 h-3.5 text-amber-400" />
-              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-400">Theme:</span>
+              <span className="text-[11px] font-semibold text-slate-400">Theme:</span>
               <select
                 id="code-theme-select"
                 value={themeId}
                 onChange={(e) => handleThemeChange(e.target.value)}
-                className="bg-transparent border-none text-xs font-medium focus:outline-none cursor-pointer pr-1"
+                className="bg-transparent border-none text-xs font-medium focus:outline-hidden cursor-pointer pr-1"
                 style={{
                   color: currentTheme.text
                 }}
               >
                 {Object.values(EDITOR_THEMES).map((thm) => (
-                  <option
-                    key={thm.id}
-                    value={thm.id}
-                    className="bg-slate-900 text-slate-100 py-1"
-                  >
+                  <option key={thm.id} value={thm.id} className="bg-slate-900 text-slate-100 py-1">
                     {thm.name}
                   </option>
                 ))}
@@ -866,52 +828,46 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
 
         {/* Action Toolbar */}
         <div className="flex items-center flex-wrap gap-2">
-          {/* Upload File Button */}
           <button
             type="button"
             id="upload-code-file-btn"
             onClick={() => fileInputRef.current?.click()}
-            title="Tải lên tệp mã nguồn từ máy tính (.cpp, .py, .java, .js, .txt...)"
+            title="Tải lên tệp mã nguồn từ máy tính"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/70 hover:bg-emerald-900/90 border border-emerald-700/70 text-xs font-medium text-emerald-300 transition-colors shadow-xs cursor-pointer"
           >
             <Upload className="w-3.5 h-3.5 text-emerald-400" />
             <span>Tải file</span>
           </button>
 
-          {/* Paste Clipboard Button */}
           <button
             type="button"
             id="paste-code-btn"
             onClick={handlePasteClipboard}
-            title="Dán mã nguồn từ Clipboard (Ctrl+V)"
+            title="Dán mã nguồn từ Clipboard hoặc mở khung dán"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-950/70 hover:bg-blue-900/90 border border-blue-700/70 text-xs font-medium text-blue-300 transition-colors shadow-xs cursor-pointer"
           >
             <ClipboardPaste className="w-3.5 h-3.5 text-blue-400" />
             <span>Dán code</span>
           </button>
 
-          {/* Sample Preset Selector */}
           <select
             id="algorithm-preset-select"
             onChange={(e) => handleSelectPreset(e.target.value)}
             defaultValue=""
-            className="px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none cursor-pointer"
+            className="px-2.5 py-1.5 rounded-lg border text-xs focus:outline-hidden cursor-pointer"
             style={{
               backgroundColor: currentTheme.bg,
               borderColor: currentTheme.border,
               color: currentTheme.text
             }}
           >
-            <option value="" disabled>
-              Mã mẫu...
-            </option>
+            <option value="" disabled>Mã mẫu...</option>
             <option value="binarySearch">Tìm kiếm nhị phân</option>
             <option value="quickSort">Sắp xếp QuickSort</option>
             <option value="dijkstra">Dijkstra đồ thị</option>
             <option value="reverseList">Đảo ngược DSLK</option>
           </select>
 
-          {/* Copy Code Button */}
           <button
             type="button"
             id="copy-code-btn"
@@ -923,7 +879,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
           </button>
 
-          {/* Clear Code Button */}
           {code && (
             <button
               type="button"
@@ -943,7 +898,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         className="relative flex flex-row h-[500px] min-h-[460px] w-full overflow-hidden font-mono text-xs"
         style={{ backgroundColor: currentTheme.bg }}
       >
-        {/* Line Numbers */}
         <div
           ref={lineNumbersRef}
           className="py-4 px-2.5 select-none text-right border-r w-12 shrink-0 font-mono text-[13px] leading-6 overflow-hidden pointer-events-none transition-colors duration-200"
@@ -960,9 +914,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
           ))}
         </div>
 
-        {/* Code Content Area - Direct Typing & Prism Syntax Highlighting with Active Theme */}
         <div className="relative flex-1 w-full h-full min-w-0 overflow-hidden">
-          {/* Prism Syntax Highlighted Overlay Layer */}
           <pre
             ref={highlightRef}
             aria-hidden="true"
@@ -977,7 +929,6 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             }}
           />
 
-          {/* Direct Native Editable Textarea Layer */}
           <textarea
             ref={textareaRef}
             id="code-input-textarea"
@@ -989,7 +940,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
             autoComplete="off"
             autoCorrect="off"
             autoCapitalize="off"
-            className="w-full h-full resize-none focus:outline-none overflow-y-auto overflow-x-auto border-0 focus:ring-0 absolute inset-0 z-10 bg-transparent selection:bg-indigo-500/40 selection:text-transparent"
+            className="w-full h-full resize-none focus:outline-hidden overflow-y-auto overflow-x-auto border-0 focus:ring-0 absolute inset-0 z-10 bg-transparent selection:bg-indigo-500/40 selection:text-transparent"
             style={{
               ...codeStyles,
               color: code ? 'transparent' : currentTheme.lineNumbersText,
