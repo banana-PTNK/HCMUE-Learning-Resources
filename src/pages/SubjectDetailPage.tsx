@@ -48,6 +48,28 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
   const meta = categoryMeta[subject.category] || categoryMeta.foundation;
   const sanitizedNotes = sanitizeScheduleString(subject.updateNotes);
 
+  // Full date & time format for detail page (e.g., '24/10/2023 lúc 14:30')
+  const formattedDateTime = (() => {
+    const raw = subject.lastUpdated || '24/10/2023, 14:30';
+    const clean = raw.trim().replace(/[,;]\s*$/, '');
+    if (clean.includes(',') && clean.includes(':')) {
+      const parts = clean.split(',');
+      return `${parts[0].trim()} lúc ${parts[1].trim()}`;
+    }
+    if (clean.includes('T')) {
+      const d = new Date(clean);
+      if (!isNaN(d.getTime())) {
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = d.getFullYear();
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        return `${day}/${month}/${year} lúc ${hours}:${minutes}`;
+      }
+    }
+    return clean;
+  })();
+
   return (
     <div className="space-y-6 animate-in fade-in duration-200 pb-12">
       {/* Breadcrumb Navigation */}
@@ -89,7 +111,7 @@ export const SubjectDetailPage: React.FC<SubjectDetailPageProps> = ({
             </span>
             <span className="px-3.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300 text-sm font-semibold flex items-center gap-2">
               <Calendar className="w-4 h-4" />
-              Lần cập nhật cuối: {subject.lastUpdated || '2026-08-22'}
+              Lần cập nhật cuối: {formattedDateTime}
             </span>
           </div>
 

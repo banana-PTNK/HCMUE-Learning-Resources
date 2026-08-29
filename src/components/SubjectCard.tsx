@@ -27,6 +27,22 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
 
   const sanitizedNotes = sanitizeScheduleString(subject.updateNotes);
 
+  // Extract only date for the card preview (e.g. '24/10/2023, 14:30' -> '24/10/2023')
+  const displayDate = (() => {
+    if (!subject.lastUpdated) return '';
+    const clean = subject.lastUpdated.trim().replace(/[,;]\s*$/, '');
+    if (clean.includes(',')) {
+      return clean.split(',')[0].trim();
+    }
+    if (clean.includes('T')) {
+      return clean.split('T')[0].trim();
+    }
+    if (clean.includes(' ')) {
+      return clean.split(' ')[0].trim();
+    }
+    return clean;
+  })();
+
   return (
     <div
       id={`subj-card-${subject.code}`}
@@ -111,14 +127,14 @@ export const SubjectCard: React.FC<SubjectCardProps> = ({
 
       {/* Card Footer */}
       <div className="pt-4 mt-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 text-xs relative z-10">
-        {subject.lastUpdated ? (
+        {displayDate ? (
           <span
             id={`subj-time-${subject.code}`}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 text-slate-600 dark:text-slate-300 font-mono text-xs font-semibold shadow-2xs"
-            title={`Lần cập nhật cuối: ${subject.lastUpdated}`}
+            title={`Lần cập nhật cuối: ${displayDate}`}
           >
             <Calendar className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400" />
-            <span>{subject.lastUpdated.split(' ')[0]}</span>
+            <span>{displayDate}</span>
           </span>
         ) : (
           <span />

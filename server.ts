@@ -270,7 +270,19 @@ function writeJsonFileSafely(filePath: string, data: any): void {
   }
 }
 
-// Initialize seed data if needed
+// Helper to normalize Student IDs (MSSV) on server
+function normalizeMssv(id: string | null | undefined): string {
+  if (!id || typeof id !== 'string') return '';
+  return id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().trim();
+}
+
+function isSameMssv(a: string | null | undefined, b: string | null | undefined): boolean {
+  const normA = normalizeMssv(a);
+  const normB = normalizeMssv(b);
+  if (!normA || !normB) return false;
+  return normA === normB;
+}
+
 function getInitialContributors(): any[] {
   const seedFile = path.join(DATA_DIR, 'contributors.json');
   return readJsonFileSafely(seedFile, []);
@@ -379,15 +391,17 @@ app.post('/api/contributions/:id/approve', (req, res) => {
 
     let matched = false;
     let updatedContributors = rawContribs.map((c: any) => {
-      const matchMssv = mssv && c.studentId && c.studentId.trim().toLowerCase() === mssv.toLowerCase();
+      const matchMssv = isSameMssv(c.studentId, mssv) || (c.id && isSameMssv(c.id, mssv));
       const matchName = !mssv && c.name && c.name.trim().toLowerCase() === contribName.toLowerCase();
       if (matchMssv || matchName) {
         matched = true;
+        const newFiles = (c.filesCount || 0) + pointsToAdd;
         return {
           ...c,
-          filesCount: (c.filesCount || 0) + pointsToAdd,
+          filesCount: newFiles,
           entriesCount: (c.entriesCount || 0) + 1,
-          recentUpload: targetItem.targetSubjectCode ? `Đóng góp môn ${targetItem.targetSubjectCode}` : c.recentUpload,
+          badgeTitle: newFiles >= 50 ? 'Đại Hiệp Sĩ Học Liệu' : newFiles >= 30 ? 'Hiệp Sĩ Học Liệu' : newFiles >= 15 ? 'Chuyên Gia Chia Sẻ' : newFiles >= 5 ? 'Người Cống Hiến' : 'Đóng góp viên Tích cực',
+          recentUpload: targetItem.targetSubjectCode ? `Đóng góp môn ${targetItem.targetSubjectCode}` : (c.recentUpload || 'Đóng góp tài liệu học tập'),
           lastActive: 'Vừa xong'
         };
       }
@@ -470,7 +484,7 @@ app.post('/api/contributors', (req, res) => {
 
   let found = false;
   list = list.map((item: any) => {
-    if (item.id === id || (body.studentId && item.studentId && item.studentId.trim().toLowerCase() === body.studentId.trim().toLowerCase())) {
+    if (item.id === id || isSameMssv(item.studentId, body.studentId) || isSameMssv(item.id, body.studentId)) {
       found = true;
       return { ...item, ...body, id: item.id || id };
     }
@@ -511,7 +525,7 @@ app.post('/api/contributors/:id/adjust', (req, res) => {
   let list = readJsonFileSafely<any[]>(CONTRIBUTORS_FILE, getInitialContributors());
 
   list = list.map((item: any) => {
-    if (item.id === id || (item.studentId && item.studentId.trim().toLowerCase() === id.trim().toLowerCase())) {
+    if (item.id === id || isSameMssv(item.studentId, id) || isSameMssv(item.id, id)) {
       const newCount = Math.max(0, (item.filesCount || 0) + delta);
       return { ...item, filesCount: newCount };
     }

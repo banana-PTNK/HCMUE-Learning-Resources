@@ -470,26 +470,79 @@ export async function approveContribution(
   const name = (contribution.contributorName || 'Sinh viên').trim();
 
   // 1. Immediately update in-memory / persistent store so Leaderboard & Admin UI update instantly
-  await updateContributorRecord(contributorDocId, {
-    name,
-    studentId: (contribution.studentId || '').trim(),
-    className: (contribution.className || '').trim(),
-    email: (contribution.email || '').trim().toLowerCase(),
-    recentUpload: subjectCode ? `Đóng góp tài liệu môn ${subjectCode}` : 'Đóng góp tài liệu học tập',
-    specialty: subjectCode ? `Chuyên đề ${subjectCode}` : 'Tài liệu CNTT',
-  });
-  await adjustContributorFilesCount(contributorDocId, finalFilesCount, 1);
-  updateLocalCachedSubmissionStatus(contributionId, 'approved');
-  deleteLocalCachedSubmission(contributionId);
+  const currentList = getStoredContributors();
+  let matchedIndex = currentList.findIndex(
+    (c) => (c.studentId && isSameStudentId(c.studentId, normalizedMssv)) || c.id === contributorDocId
+  );
+  if (matchedIndex < 0 && name) {
+    matchedIndex = currentList.findIndex((c) => c.name.trim().toLowerCase() === name.toLowerCase());
+  }
 
-  // 2. Call Server REST API
+  let updatedList = [...currentList];
+  if (matchedIndex >= 0) {
+    const existing = currentList[matchedIndex];
+    const newFiles = (existing.filesCount || 0) + finalFilesCount;
+    const rankInfo = getRankLevel(newFiles);
+    updatedList[matchedIndex] = {
+      ...existing,
+      name: name || existing.name,
+      studentId: contribution.studentId || existing.studentId,
+      className: contribution.className || existing.className,
+      email: contribution.email || existing.email,
+      filesCount: newFiles,
+      entriesCount: (existing.entriesCount || 0) + 1,
+      badgeTitle: rankInfo.rank,
+      recentUpload: subjectCode ? `Đóng góp tài liệu môn ${subjectCode}` : (existing.recentUpload || 'Đóng góp tài liệu học tập'),
+      specialty: existing.specialty || (subjectCode ? `Chuyên đề ${subjectCode}` : 'Tài liệu CNTT')
+    };
+  } else {
+    const rankInfo = getRankLevel(finalFilesCount);
+    const newContributor: Contributor = {
+      id: contributorDocId,
+      name,
+      studentId: (contribution.studentId || '').trim(),
+      className: (contribution.className || '').trim(),
+      email: (contribution.email || '').trim().toLowerCase(),
+      avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name || 'HCMUE')}`,
+      badgeTitle: rankInfo.rank,
+      filesCount: finalFilesCount,
+      entriesCount: 1,
+      rank: currentList.length + 1,
+      specialty: subjectCode ? `Môn ${subjectCode}` : 'Tài liệu CNTT',
+      recentUpload: subjectCode ? `Đóng góp tài liệu môn ${subjectCode}` : 'Đóng góp tài liệu học tập',
+      verified: true
+    };
+    updatedList.push(newContributor);
+  }
+
+  // Sort and assign ranks
+  updatedList.sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+  updatedList = updatedList.map((item, idx) => ({ ...item, rank: idx + 1 }));
+  setMemoryContributors(updatedList);
+
+  // Keep submission status as approved in local cache
+  updateLocalCachedSubmissionStatus(contributionId, 'approved');
+
+  // 2. Call Server REST API and await to guarantee server store persistence
   try {
-    fetch(`/api/contributions/${contributionId}/approve`, {
+    const res = await fetch(`/api/contributions/${contributionId}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ customFilesCount: finalFilesCount, adminName })
-    }).catch(() => {});
-  } catch {}
+    });
+    if (res.ok) {
+      // Re-sync server contributors
+      const contribRes = await fetch('/api/contributors');
+      if (contribRes.ok) {
+        const contribJson = await contribRes.json();
+        if (contribJson && Array.isArray(contribJson.data)) {
+          setMemoryContributors(contribJson.data);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Server REST approve sync warning:', err);
+  }
 
   // 3. Perform Firestore write safely in background without blocking the UI
   try {

@@ -506,19 +506,38 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     const count = Math.max(1, filesCountToCredit);
 
     try {
-      // 1. Instant optimistic update in local state - remove the item from queue
-      setContributions((prev) => prev.filter((c) => c.id !== item.id));
+      // 1. Instant optimistic update in local state - update status to approved
+      setContributions((prev) =>
+        prev.map((c) =>
+          c.id === item.id
+            ? {
+                ...c,
+                status: 'approved',
+                filesCount: count,
+                approvedAt: new Date().toISOString(),
+                approvedBy: 'Admin'
+              }
+            : c
+        )
+      );
       setApproveModalItem(null);
 
-      // 2. Perform atomic approval in Firestore transaction (updates contribution status & increments contributor record)
+      // 2. Perform atomic approval (updates contribution status & increments contributor record)
       await approveContribution(item, 'Admin', count);
+
+      // 3. Immediately refresh Leaderboard in Admin page state
+      const updatedLeaderboard = getStoredContributors();
+      setLeaderboardList(updatedLeaderboard);
+      fetchContributorsFromFirestore().then((serverList) => {
+        if (serverList && serverList.length > 0) setLeaderboardList(serverList);
+      }).catch(() => {});
 
       toast.success(
         'Đã duyệt tài liệu thành công!',
         `Đã công nhận ${count} tài liệu cho ${item.contributorName} và cập nhật Bảng Xếp Hạng.`
       );
     } catch (err: any) {
-      console.error('Firestore approval error:', err);
+      console.error('Approval error:', err);
       toast.error('Lỗi phê duyệt', 'Không thể đồng bộ trạng thái duyệt lên máy chủ.');
       // Rollback optimistic update by fetching latest contributions
       loadContributions();
@@ -604,8 +623,14 @@ Website: https://fit-hcmue-studyvault.web.app`;
     setActionProcessingId(item.id);
 
     try {
-      // 1. Optimistic update - remove the item completely
-      setContributions((prev) => prev.filter((c) => c.id !== item.id));
+      // 1. Optimistic update - update item to rejected
+      setContributions((prev) =>
+        prev.map((c) =>
+          c.id === item.id
+            ? { ...c, status: 'rejected', adminFeedback: reasonText }
+            : c
+        )
+      );
 
       // 2. Reject in backend in the background
       rejectContribution(item.id, reasonText).catch((err) => {

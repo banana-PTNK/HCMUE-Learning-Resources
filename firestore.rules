@@ -2,30 +2,68 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Contributions collection - allow guest submissions with status == 'pending', allow moderation operations
-    match /contributions/{contributionId} {
-      allow create: if request.resource.data.status == 'pending';
-      allow read, update, delete: if true;
+    // Helper validation functions
+    function isValidString(val, minLen, maxLen) {
+      return val is string && val.size() >= minLen && val.size() <= maxLen;
     }
 
-    // Contributors (Hall of Fame / Leaderboard) - public read, write for atomic transactions & updates
+    function isValidNumber(val, minVal, maxVal) {
+      return val is number && val >= minVal && val <= maxVal;
+    }
+
+    // 1. Contributions Collection
+    // - Public read for checking status & displaying approved documents
+    // - Guest submissions restricted to status == 'pending' with validated fields
+    // - Updates allowed for status lifecycle & verified count adjustments
+    // - Delete strictly blocked for unauthenticated clients
+    match /contributions/{contributionId} {
+      allow read: if true;
+      allow create: if request.resource.data.status == 'pending'
+        && isValidString(request.resource.data.targetSubjectCode, 2, 50)
+        && isValidString(request.resource.data.driveUrl, 5, 2048)
+        && isValidString(request.resource.data.contributorName, 1, 100)
+        && isValidString(request.resource.data.studentId, 1, 50)
+        && isValidNumber(request.resource.data.filesCount, 1, 1000);
+      allow update: if request.resource.data.status in ['pending', 'approved', 'rejected']
+        && isValidNumber(request.resource.data.filesCount, 1, 1000);
+      allow delete: if request.auth != null;
+    }
+
+    // 2. Contributors Collection (Leaderboard / Hall of Fame)
+    // - Public read for rankings
+    // - Creation and updates strictly validate fields (name, studentId, filesCount)
+    // - Deletions strictly forbidden for public users
     match /contributors/{contributorId} {
       allow read: if true;
-      allow write: if true;
+      allow create, update: if isValidString(request.resource.data.name, 1, 100)
+        && isValidNumber(request.resource.data.filesCount, 0, 100000);
+      allow delete: if request.auth != null;
     }
 
-    // Feedbacks & Announcements
+    // 3. User Feedbacks
+    // - Public create with length caps and default status
+    // - Delete forbidden for public users
     match /feedbacks/{feedbackId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if isValidString(request.resource.data.content, 2, 5000)
+        && request.resource.data.status in ['unread', 'read', 'resolved', 'pending'];
+      allow update: if request.resource.data.status in ['unread', 'read', 'resolved'];
+      allow delete: if request.auth != null;
     }
 
+    // 4. Announcements
+    // - Public read for system notices
+    // - Write restricted to valid structure
     match /announcements/{announcementId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create, update: if isValidString(request.resource.data.title, 2, 200)
+        && isValidString(request.resource.data.summary, 2, 1000);
+      allow delete: if request.auth != null;
     }
 
-    // Catch all other documents
+    // 5. Default Deny-All for all other collections and documents
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }
