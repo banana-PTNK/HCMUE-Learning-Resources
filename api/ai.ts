@@ -646,9 +646,10 @@
  */
 
 export const config = {
-  maxDuration: 60, // Cho phép Vercel chạy tối đa 60s, không lo timeout
+  maxDuration: 60,
 };
 
+// Trích xuất toàn bộ text từ response của Gemini API
 function extractTextFromCandidate(candidate: any): string {
   if (!candidate?.content?.parts) return '';
   const parts = candidate.content.parts;
@@ -661,34 +662,46 @@ function extractTextFromCandidate(candidate: any): string {
   return textPieces.join('\n').trim();
 }
 
-function parseJsonObjectSafely(rawText: string): any {
+// Bóc tách và làm sạch JSON Object chống lỗi cú pháp khi AI phân tích mã nguồn phức tạp
+function sanitizeAndParseJson(rawText: string): any {
   if (!rawText || typeof rawText !== 'string') return {};
-  let text = rawText.trim();
 
+  let text = rawText.trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+
+  // 1. Thử parse trực tiếp
   try {
     const direct = JSON.parse(text);
-    if (direct && typeof direct === 'object') return direct;
+    if (direct && typeof direct === 'object' && !Array.isArray(direct)) return direct;
   } catch {}
 
-  text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  // 2. Tự động sửa lỗi unescaped newlines trong các chuỗi string JSON
   try {
-    const cleaned = JSON.parse(text);
-    if (cleaned && typeof cleaned === 'object') return cleaned;
+    const fixedNewlines = text.replace(/(?<=:\s*"[^"]*)\n(?=[^"]*")/g, '\\n');
+    const parsed = JSON.parse(fixedNewlines);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
   } catch {}
 
+  // 3. Trích xuất block JSON từ dấu { đầu tiên đến dấu } cuối cùng
   const firstBrace = text.indexOf('{');
   const lastBrace = text.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
     try {
-      const extracted = text.slice(firstBrace, lastBrace + 1);
-      const obj = JSON.parse(extracted);
-      if (obj && typeof obj === 'object') return obj;
+      const candidate = text.slice(firstBrace, lastBrace + 1);
+      const parsedCandidate = JSON.parse(candidate);
+      if (parsedCandidate && typeof parsedCandidate === 'object' && !Array.isArray(parsedCandidate)) {
+        return parsedCandidate;
+      }
     } catch {}
   }
 
   return {};
 }
 
+// Chuẩn hóa cấu trúc kết quả phân tích code (chống rỗng UI)
 function normalizeAnalysisResult(raw: any) {
   if (!raw || typeof raw !== 'object') {
     return {
@@ -704,10 +717,10 @@ function normalizeAnalysisResult(raw: any) {
     };
   }
 
-  const timeComplexity = raw.timeComplexity || raw.time_complexity || raw.time || raw.complexity || "O(n)";
-  const spaceComplexity = raw.spaceComplexity || raw.space_complexity || raw.space || raw.auxiliary_space || "O(1)";
+  const timeComplexity = String(raw.timeComplexity || raw.time_complexity || raw.time || raw.complexity || "O(n)");
+  const spaceComplexity = String(raw.spaceComplexity || raw.space_complexity || raw.space || raw.auxiliary_space || "O(1)");
   const isOptimal = raw.isOptimal !== undefined ? Boolean(raw.isOptimal) : (raw.is_optimal !== undefined ? Boolean(raw.is_optimal) : true);
-  const spaceType = raw.spaceType || raw.space_type || (spaceComplexity.includes("1") ? "Tại chỗ (In-place)" : "Bộ nhớ phụ trợ");
+  const spaceType = String(raw.spaceType || raw.space_type || (spaceComplexity.includes("1") ? "Tại chỗ (In-place)" : "Bộ nhớ phụ trợ"));
 
   let rawSteps = raw.dryRunSteps || raw.dry_run_steps || raw.steps || raw.trace || [];
   if (!Array.isArray(rawSteps)) rawSteps = [];
@@ -717,9 +730,9 @@ function normalizeAnalysisResult(raw: any) {
     variables: String(s.variables || s.vars || s.state || s.values || '')
   }));
 
-  const warnings = Array.isArray(raw.warnings) ? raw.warnings : (Array.isArray(raw.risks) ? raw.risks : []);
-  const optimizations = Array.isArray(raw.optimizations) ? raw.optimizations : (Array.isArray(raw.improvements) ? raw.improvements : []);
-  const edgeCases = Array.isArray(raw.edgeCases) ? raw.edgeCases : (Array.isArray(raw.edge_cases) ? raw.edge_cases : []);
+  const warnings = Array.isArray(raw.warnings) ? raw.warnings.map(String) : (Array.isArray(raw.risks) ? raw.risks.map(String) : []);
+  const optimizations = Array.isArray(raw.optimizations) ? raw.optimizations.map(String) : (Array.isArray(raw.improvements) ? raw.improvements.map(String) : []);
+  const edgeCases = Array.isArray(raw.edgeCases) ? raw.edgeCases.map(String) : (Array.isArray(raw.edge_cases) ? raw.edge_cases.map(String) : []);
   const summary = String(raw.summary || raw.overview || raw.conclusion || "Hoàn tất phân tích thuật toán.");
 
   return {
@@ -735,6 +748,7 @@ function normalizeAnalysisResult(raw: any) {
   };
 }
 
+// Bóc tách JSON mảng an toàn cho Thời khóa biểu
 function parseJsonArraySafely(rawText: string): any[] {
   if (!rawText || typeof rawText !== 'string') return [];
   let text = rawText.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -761,9 +775,22 @@ function parseJsonArraySafely(rawText: string): any[] {
     } catch {}
   }
 
-  return [];
+  const extractedObjects: any[] = [];
+  const objectRegex = /\{[^{}]*?(?:"courseCode"|"stt"|"classCode"|"subjectCode"|"maHocPhan"|"courseName"|"subjectName")[^{}]*?\}/g;
+  let match;
+  while ((match = objectRegex.exec(text)) !== null) {
+    try {
+      const obj = JSON.parse(match[0]);
+      if (obj && typeof obj === 'object') {
+        extractedObjects.push(obj);
+      }
+    } catch {}
+  }
+
+  return extractedObjects;
 }
 
+// Bộ lọc chuỗi tiêu đề và chuỗi rác
 function isHeaderOrNoiseString(val: string): boolean {
   if (!val || typeof val !== 'string') return true;
   const upper = val.trim().toUpperCase();
@@ -784,6 +811,7 @@ function isHeaderOrNoiseString(val: string): boolean {
   return noiseTokens.some((t) => upper === t || upper === `${t}:` || upper === `${t}.`);
 }
 
+// Làm sạch tên giảng viên
 function cleanLecturerName(raw: any): string {
   if (!raw || typeof raw !== 'string') return '';
   let str = raw.trim().replace(/^[-–—:;,.]+/, '').replace(/[-–—:;,.]+$/, '').replace(/\s+/g, ' ').trim();
@@ -794,6 +822,7 @@ function cleanLecturerName(raw: any): string {
   return str;
 }
 
+// Làm sạch tên phòng học
 function cleanRoomName(raw: any): string {
   if (!raw || typeof raw !== 'string') return '';
   let str = raw.trim().replace(/^[-–—:;,.]+/, '').replace(/[-–—:;,.]+$/, '').replace(/\s+/g, ' ').trim();
@@ -804,6 +833,7 @@ function cleanRoomName(raw: any): string {
   return str;
 }
 
+// Sửa lỗi nhận diện mã môn học (OCR Healing)
 function healCourseCode(raw: string): string {
   if (!raw) return '';
   let code = raw.trim().toUpperCase().replace(/[\s\-_.]+/g, '');
@@ -816,6 +846,7 @@ function healCourseCode(raw: string): string {
     .replace(/^M4TH/i, 'MATH');
 }
 
+// Chuẩn hóa và làm sạch danh sách lớp học phần
 function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string): any[] {
   if (!Array.isArray(rawList)) return [];
   const results: any[] = [];
@@ -927,6 +958,7 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
   return results;
 }
 
+// Chuẩn hóa TKB cá nhân
 function normalizePersonalSchedule(rawList: any[]): any[] {
   if (!Array.isArray(rawList)) return [];
   const palette = ['indigo', 'blue', 'emerald', 'teal', 'purple', 'amber', 'rose', 'cyan'];
@@ -949,14 +981,14 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
   }));
 }
 
-// Gọi API Gemini ổn định không bị ngắt quãng giữa chừng
+// Gọi API Gemini ổn định
 async function callGemini(apiKey: string, payload: any): Promise<string> {
   const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
   let lastError: any = null;
 
   for (const model of models) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const url = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1005,7 +1037,9 @@ export default async function handler(req: any, res: any) {
     const action = rawAction.toUpperCase();
     const payload = body.payload || body;
 
+    // =========================================================================
     // 1. PERSONAL SCHEDULE EXTRACTION (PARSE_SCHEDULE)
+    // =========================================================================
     if (action === 'PARSE_SCHEDULE' || rawAction === 'parseSchedule') {
       const { imageBase64, fileBase64, mimeType, textData } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1065,7 +1099,9 @@ export default async function handler(req: any, res: any) {
       });
     }
 
+    // =========================================================================
     // 2. MASTER SCHEDULE RELATIONAL JOIN (PARSE_MASTER_SCHEDULE)
+    // =========================================================================
     if (action === 'PARSE_MASTER_SCHEDULE' || rawAction === 'parseMasterSchedule') {
       const { imageBase64, fileBase64, mimeType, fileName, textData, customPrompt, universityPreset } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1132,7 +1168,9 @@ SCHEMA:
       });
     }
 
-    // 3. PHÂN TÍCH THUẬT TOÁN & BIG-O (EXPLAIN_CODE)
+    // =========================================================================
+    // 3. COMPILER-GRADE ALGORITHM & BIG-O ANALYZER (EXPLAIN_CODE)
+    // =========================================================================
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
       if (!code || typeof code !== 'string' || !code.trim()) {
@@ -1146,18 +1184,23 @@ Hãy đọc kỹ và phân tích CHÍNH XÁC đoạn mã nguồn sau:
 ${code}
 \`\`\`
 
-YÊU CẦU:
-1. timeComplexity: Tính toán chính xác độ phức tạp Worst-case Big-O dựa trên các vòng lặp và đệ quy thực tế trong code (VD: O(1), O(log n), O(n), O(n log n), O(n²), O(2^n)).
-2. spaceComplexity: Tính bộ nhớ phụ trợ Auxiliary Space (stack đệ quy, mảng phụ).
+YÊU CẦU PHÂN TÍCH CHUYÊN SÂU:
+1. timeComplexity: Tính toán chính xác độ phức tạp Worst-case Big-O dựa trên vòng lặp, đệ quy, Fenwick Tree/Segment Tree, sorting (VD: O(1), O(log n), O(n), O(n log n), O(n log(max_val)), O(n²)).
+2. spaceComplexity: Tính bộ nhớ phụ trợ Auxiliary Space (stack đệ quy, vector sự kiện, mảng BIT).
 3. isOptimal: boolean (true nếu đã tối ưu, false nếu còn giải thuật tốt hơn).
 4. spaceType: Chuỗi mô tả (VD: "Tại chỗ (In-place)" hoặc "Bộ nhớ phụ trợ O(...)").
 5. dryRunSteps: Tự tạo 1 bộ dữ liệu đầu vào nhỏ cụ thể khớp với bài toán của đoạn code này và mô phỏng 3-5 bước chạy thực tế. Cột variables phải ghi rõ giá trị các biến tương ứng.
-6. warnings: Chỉ ra các lỗi tiềm ẩn thực tế trong đoạn mã này (tràn số, thiếu điều kiện biên, lỗi con trỏ, lặp vô tận).
-7. optimizations: Đề xuất cải tiến giải thuật hoặc cấu trúc dữ liệu tối ưu hơn.
-8. edgeCases: Các trường hợp biên cần kiểm tra (mảng rỗng, 1 phần tử, số âm, trùng lặp).
+6. warnings: Chỉ ra các lỗi tiềm ẩn thực tế trong đoạn mã này (tràn số, thứ tự comparator khi bằng tọa độ, thiếu điều kiện biên, lỗi con trỏ, lặp vô tận).
+7. optimizations: Đề xuất cải tiến giải thuật hoặc cấu trúc dữ liệu tối ưu hơn (ví dụ: nén tọa độ Coordinate Compression).
+8. edgeCases: Các trường hợp biên cần kiểm tra (mảng rỗng, 1 phần tử, số âm, đoạn thẳng trùng nhau hoặc cắt nhau ở đầu mút).
 9. summary: Tóm tắt nhận xét giải thuật ngắn gọn trong 1 câu.
 
-TRẢ VỀ DUY NHẤT MỘT JSON OBJECT:
+QUY TẮC ĐỊNH DẠNG:
+- Trả về DUY NHẤT một JSON OBJECT hợp lệ theo schema dưới đây.
+- KHÔNG thêm bất kỳ văn bản giải thích nào ngoài JSON.
+- Đảm bảo các chuỗi ký tự bên trong JSON được escape hợp lệ.
+
+SCHEMA:
 {
   "timeComplexity": "O(...)",
   "spaceComplexity": "O(...)",
@@ -1174,20 +1217,20 @@ TRẢ VỀ DUY NHẤT MỘT JSON OBJECT:
         contents: [
           {
             role: 'user',
-            parts: [{ text: `Phân tích thuật toán mã nguồn ${language || 'lập trình'} này:\n\n${code}` }]
+            parts: [{ text: `Phân tích thuật toán mã nguồn ${language || 'lập trình'} này theo yêu cầu:\n\n${code}` }]
           }
         ],
         systemInstruction: { parts: [{ text: systemInstruction }] },
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 4096,
           responseMimeType: 'application/json'
         }
       };
 
       const responseText = await callGemini(apiKey, geminiPayload);
-      const parsedRaw = parseJsonObjectSafely(responseText);
+      const parsedRaw = sanitizeAndParseJson(responseText);
       const normalizedResult = normalizeAnalysisResult(parsedRaw);
 
       return res.status(200).json({
