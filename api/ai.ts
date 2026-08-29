@@ -636,9 +636,10 @@
 // }
 
 
+
 /**
  * Vercel Serverless Function: /api/ai
- * Ultra-Fast & High-Accuracy AI Engine powered by Gemini 3.6 Flash
+ * Ultra-Fast & High-Accuracy AI Assistant Engine powered by Gemini 3.6 Flash
  * Supports:
  * - PARSE_SCHEDULE (Personal student schedule vision extraction)
  * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
@@ -649,7 +650,7 @@ export const config = {
   maxDuration: 60,
 };
 
-// Trích xuất toàn bộ text từ response của Gemini API
+// Trích xuất toàn bộ text parts từ response của Gemini
 function extractTextFromCandidate(candidate: any): string {
   if (!candidate?.content?.parts) return '';
   const parts = candidate.content.parts;
@@ -662,7 +663,7 @@ function extractTextFromCandidate(candidate: any): string {
   return textPieces.join('\n').trim();
 }
 
-// Bóc tách và làm sạch JSON Object chống lỗi cú pháp khi AI phân tích mã nguồn phức tạp
+// Bóc tách JSON Object an toàn, tự sửa lỗi ký tự xuống dòng chưa escape
 function sanitizeAndParseJson(rawText: string): any {
   if (!rawText || typeof rawText !== 'string') return {};
 
@@ -678,14 +679,14 @@ function sanitizeAndParseJson(rawText: string): any {
     if (direct && typeof direct === 'object' && !Array.isArray(direct)) return direct;
   } catch {}
 
-  // 2. Tự động sửa lỗi unescaped newlines trong các chuỗi string JSON
+  // 2. Tự sửa lỗi unescaped newlines trong các chuỗi string JSON
   try {
     const fixedNewlines = text.replace(/(?<=:\s*"[^"]*)\n(?=[^"]*")/g, '\\n');
     const parsed = JSON.parse(fixedNewlines);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
   } catch {}
 
-  // 3. Trích xuất block JSON từ dấu { đầu tiên đến dấu } cuối cùng
+  // 3. Trích xuất block JSON từ { đầu tiên đến } cuối cùng
   const firstBrace = text.indexOf('{');
   const lastBrace = text.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
@@ -790,7 +791,6 @@ function parseJsonArraySafely(rawText: string): any[] {
   return extractedObjects;
 }
 
-// Bộ lọc chuỗi tiêu đề và chuỗi rác
 function isHeaderOrNoiseString(val: string): boolean {
   if (!val || typeof val !== 'string') return true;
   const upper = val.trim().toUpperCase();
@@ -811,7 +811,6 @@ function isHeaderOrNoiseString(val: string): boolean {
   return noiseTokens.some((t) => upper === t || upper === `${t}:` || upper === `${t}.`);
 }
 
-// Làm sạch tên giảng viên
 function cleanLecturerName(raw: any): string {
   if (!raw || typeof raw !== 'string') return '';
   let str = raw.trim().replace(/^[-–—:;,.]+/, '').replace(/[-–—:;,.]+$/, '').replace(/\s+/g, ' ').trim();
@@ -822,7 +821,6 @@ function cleanLecturerName(raw: any): string {
   return str;
 }
 
-// Làm sạch tên phòng học
 function cleanRoomName(raw: any): string {
   if (!raw || typeof raw !== 'string') return '';
   let str = raw.trim().replace(/^[-–—:;,.]+/, '').replace(/[-–—:;,.]+$/, '').replace(/\s+/g, ' ').trim();
@@ -833,7 +831,6 @@ function cleanRoomName(raw: any): string {
   return str;
 }
 
-// Sửa lỗi nhận diện mã môn học (OCR Healing)
 function healCourseCode(raw: string): string {
   if (!raw) return '';
   let code = raw.trim().toUpperCase().replace(/[\s\-_.]+/g, '');
@@ -846,7 +843,6 @@ function healCourseCode(raw: string): string {
     .replace(/^M4TH/i, 'MATH');
 }
 
-// Chuẩn hóa và làm sạch danh sách lớp học phần
 function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string): any[] {
   if (!Array.isArray(rawList)) return [];
   const results: any[] = [];
@@ -958,7 +954,6 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
   return results;
 }
 
-// Chuẩn hóa TKB cá nhân
 function normalizePersonalSchedule(rawList: any[]): any[] {
   if (!Array.isArray(rawList)) return [];
   const palette = ['indigo', 'blue', 'emerald', 'teal', 'purple', 'amber', 'rose', 'cyan'];
@@ -981,7 +976,7 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
   }));
 }
 
-// Gọi API Gemini ổn định
+// Gọi API Gemini ổn định không bị ngắt quãng giữa chừng
 async function callGemini(apiKey: string, payload: any): Promise<string> {
   const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
   let lastError: any = null;
@@ -1037,9 +1032,7 @@ export default async function handler(req: any, res: any) {
     const action = rawAction.toUpperCase();
     const payload = body.payload || body;
 
-    // =========================================================================
     // 1. PERSONAL SCHEDULE EXTRACTION (PARSE_SCHEDULE)
-    // =========================================================================
     if (action === 'PARSE_SCHEDULE' || rawAction === 'parseSchedule') {
       const { imageBase64, fileBase64, mimeType, textData } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1099,9 +1092,7 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // =========================================================================
     // 2. MASTER SCHEDULE RELATIONAL JOIN (PARSE_MASTER_SCHEDULE)
-    // =========================================================================
     if (action === 'PARSE_MASTER_SCHEDULE' || rawAction === 'parseMasterSchedule') {
       const { imageBase64, fileBase64, mimeType, fileName, textData, customPrompt, universityPreset } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1168,9 +1159,7 @@ SCHEMA:
       });
     }
 
-    // =========================================================================
     // 3. COMPILER-GRADE ALGORITHM & BIG-O ANALYZER (EXPLAIN_CODE)
-    // =========================================================================
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
       if (!code || typeof code !== 'string' || !code.trim()) {
