@@ -288,7 +288,7 @@ NGUYÊN TẮC GHÉP DỮ LIỆU:
 2. Với mỗi STT:
    - Tra cứu tên môn, mã môn, mã lớp học phần ở Phân đoạn 1.
    - Tra cứu Thứ ở Phân đoạn 2.
-   - Tra cứu Tiết bắt đầu & kết thúc ở Phân đoạn 3.
+   - Tra cứu Tiết bắt đầu & kết thúc ở Phân đoạn 3 (ĐẶC BIỆT CHÚ Ý: Điền đúng tiết học thực tế, ví dụ Tiết 4-6, 7-9, 10-12, 1-3; TUYỆT ĐỐI KHÔNG mặc định tất cả đều là 1-3).
    - Tra cứu Phòng học ở Phân đoạn 4.
    - Tra cứu Giảng viên ở Phân đoạn 5.
    - Ghép tất cả các thuộc tính trên lại thành một hoặc nhiều ca học hoàn chỉnh.
@@ -299,9 +299,17 @@ NGUYÊN TẮC GHÉP DỮ LIỆU:
      * Khớp tương ứng theo dòng với dòng Tiết học ở Phân đoạn 3 (Ví dụ dòng 1: Tiết 7-9; dòng 2: Tiết 10-12).
      * Khớp tương ứng với dòng Phòng học ở Phân đoạn 4 (Ví dụ dòng 1: Phòng I.203; dòng 2: Phòng I.102).
      * Khớp tương ứng với dòng Giảng viên ở Phân đoạn 5 (Ví dụ dòng 1: GV Trần Hữu Quốc Thư; dòng 2: GV Trần Hữu Quốc Thư).
-4. GIẢNG VIÊN (lecturer): Giữ nguyên 100% họ tên kèm chức danh (TS., ThS., PGS.TS...). TUYỆT ĐỐI không được gán tên môn học vào cột giảng viên. Nếu không có giảng viên hoặc giảng viên chưa xếp, hãy điền trống ("") hoặc đặt "Chưa xếp" để hệ thống tự lọc bỏ.
-5. PHÒNG HỌC (room): Ghi đúng phòng học thực tế (ví dụ: I.203, I.102, C.301, Online...). Nếu không có phòng, hãy điền trống ("") hoặc đặt "Chưa xếp".
-6. CHỈ trả về một mảng JSON các lớp học phần hoàn chỉnh. Không thêm bất kỳ giải thích nào ngoài mảng JSON.`;
+4. TIẾT BẮT ĐẦU & KẾT THÚC (startPeriod, endPeriod):
+   - MỖI MÔN CHỈ TỐI ĐA 3 ĐẾN 4 TIẾT TRONG MỘT BUỔI HỌC.
+   - TUYỆT ĐỐI KHÔNG CÓ MÔN NÀO HỌC TỪ TIẾT 1 ĐẾN 12 VÀ KHÔNG CÓ MÔN NÀO HỌC TỪ TIẾT 1 ĐẾN 6.
+   - Ca Sáng sớm: 1-3 hoặc 1-4 (startPeriod: 1, endPeriod: 3 hoặc 4)
+   - Ca Sáng muộn: 4-6, 3-6 hoặc 4-7 (startPeriod: 4 hoặc 3, endPeriod: 6 hoặc 7)
+   - Ca Chiều sớm: 7-9 hoặc 7-10 (startPeriod: 7, endPeriod: 9 hoặc 10)
+   - Ca Chiều muộn: 10-12 hoặc 10-13 (startPeriod: 10, endPeriod: 12 hoặc 13)
+   - Ca Tối: 13-15 (startPeriod: 13, endPeriod: 15)
+5. GIẢNG VIÊN (lecturer): Giữ nguyên 100% họ tên kèm chức danh (TS., ThS., PGS.TS...). TUYỆT ĐỐI không được gán tên môn học vào cột giảng viên. Nếu không có giảng viên hoặc giảng viên chưa xếp, hãy điền trống ("") hoặc đặt "Chưa xếp" để hệ thống tự lọc bỏ.
+6. PHÒNG HỌC (room): Ghi đúng phòng học thực tế (ví dụ: I.203, I.102, C.301, Online...). Nếu không có phòng, hãy điền trống ("") hoặc đặt "Chưa xếp".
+7. CHỈ trả về một mảng JSON các lớp học phần hoàn chỉnh. Không thêm bất kỳ giải thích nào ngoài mảng JSON.`;
 
     // 1. FAST NON-BLOCKING SPREADSHEET (Excel / CSV)
     if (type === 'excel' || type === 'csv') {

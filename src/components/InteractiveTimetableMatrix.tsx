@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { MasterCourseSection } from '../types';
 import { PERIOD_TIME_MAP, DAY_NAMES } from '../utils/icsExport';
-import { hasTimeClash, isVLESection } from '../utils/schedulerCsp';
+import { hasTimeClash, isVLESection, solveTimetableCSP } from '../utils/schedulerCsp';
 import { extractBaseCourseCode } from '../utils/scheduleParser';
 import { AlertTriangle, Clock, MapPin, User, ArrowLeftRight, Trash2, CheckCircle2, BookOpen, Layers, ShieldAlert, Sparkles, X, Globe, Calendar } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
@@ -581,6 +581,31 @@ export const InteractiveTimetableMatrix: React.FC<InteractiveTimetableMatrixProp
     setSelectedSectionForSwitch(null);
   };
 
+  // Automatically resolve clashes using CSP solver
+  const handleAutoResolveClashes = () => {
+    const uniqueCourseCodes: string[] = Array.from(
+      new Set(
+        activeSections
+          .map((s) => s.courseCode || extractBaseCourseCode(s.classCode))
+          .filter((c): c is string => Boolean(c))
+      )
+    );
+
+    if (uniqueCourseCodes.length === 0 || masterCatalog.length === 0) {
+      toast.info('Không có đủ dữ liệu môn học để tự động xếp lại.');
+      return;
+    }
+
+    const solutions = solveTimetableCSP(masterCatalog, uniqueCourseCodes, { preferredShift: 'all' }, 5);
+    if (solutions.length > 0 && solutions[0].clashCount === 0) {
+      const best = solutions[0].sections.filter((s) => !isVLESection(s));
+      onUpdateSections(best);
+      toast.success('✨ Đã tự động đổi lớp và xếp lại Thời khóa biểu tối ưu (Hoàn toàn không trùng lịch)!');
+    } else {
+      toast.warning('Không tìm thấy phương án 100% không trùng lịch cho tổ hợp môn này. Bạn vui lòng đổi ca học thủ công.');
+    }
+  };
+
   const vleSections = useMemo(() => {
     return activeSections.filter((sec) => isVLESection(sec));
   }, [activeSections]);
@@ -606,7 +631,7 @@ export const InteractiveTimetableMatrix: React.FC<InteractiveTimetableMatrixProp
       {/* Live Conflict Warning Alert Banner when any clashes exist */}
       {detectedClashes.length > 0 && (
         <div className="p-4 sm:p-5 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-400 dark:border-rose-700/80 shadow-lg shadow-rose-500/10 space-y-3 animate-in fade-in slide-in-from-top-2">
-          <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-900/70 border border-rose-300 dark:border-rose-700 flex items-center justify-center text-rose-600 dark:text-rose-300 shrink-0">
                 <AlertTriangle className="w-5 h-5 animate-bounce" />
@@ -616,10 +641,20 @@ export const InteractiveTimetableMatrix: React.FC<InteractiveTimetableMatrixProp
                   <span>CẢNH BÁO: Phát hiện {detectedClashes.length} xung đột trùng lịch học!</span>
                 </h4>
                 <p className="text-xs text-rose-700 dark:text-rose-300 mt-0.5">
-                  Thời khóa biểu đang có các môn học bị trùng khung giờ. Hãy bấm vào một trong các môn dưới đây để đổi sang ca học khác hoặc xóa bớt môn.
+                  Thời khóa biểu đang có các môn học bị trùng khung giờ. Hãy bấm vào môn bên dưới để đổi ca, hoặc dùng tính năng Tự động xếp lịch bên phải.
                 </p>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={handleAutoResolveClashes}
+              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-md transition-all shrink-0 cursor-pointer"
+              title="Tự động tìm phương án phân bổ Sáng & Chiều không trùng lịch"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300 fill-amber-300" />
+              <span>Tự động gỡ trùng lịch</span>
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">

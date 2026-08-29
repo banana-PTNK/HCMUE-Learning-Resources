@@ -10,7 +10,9 @@ import {
   query,
   limit,
   orderBy,
-  where
+  where,
+  runTransaction,
+  onSnapshot
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { Contributor } from '../types';
@@ -22,7 +24,9 @@ import {
   saveLocalCachedSubmission,
   updateLocalCachedSubmissionFilesCount,
   updateLocalCachedSubmissionStatus,
-  deleteLocalCachedSubmission
+  deleteLocalCachedSubmission,
+  CONTRIBUTIONS_UPDATED_EVENT,
+  CONTRIBUTORS_UPDATED_EVENT
 } from '../utils/contributorStorage';
 import {
   normalizeStudentId,
@@ -265,7 +269,7 @@ function cleanUndefined(obj: any): any {
     id: fallbackId,
     targetSubjectCode: payload.targetSubjectCode.toUpperCase().trim(),
     customSubjectName: payload.customSubjectName?.trim() || undefined,
-    assetType: payload.assetType,
+    assetType: payload.assetType || 'all',
     driveUrl: normalizedDriveUrl,
     filesCount,
     contributorName,
@@ -277,21 +281,35 @@ function cleanUndefined(obj: any): any {
     createdAt: new Date().toISOString()
   };
 
-  // 2. Perform Firestore write and await it
+  // 1. ALWAYS IMMEDIATELY save to local cache & emit event so Admin page and UI update instantaneously (0ms)
+  saveLocalCachedSubmission(docData);
+
+  // 2. Perform Firestore write and update document ID if successful
   try {
     const cleanData = cleanUndefined(docData);
     delete cleanData.id; // Let Firestore assign the document ID
-    const docRef = await addDoc(collection(db, CONTRIBUTIONS_COLLECTION), {
+    const firestorePromise = addDoc(collection(db, CONTRIBUTIONS_COLLECTION), {
       ...cleanData,
       createdAt: serverTimestamp()
     });
-    const updatedSub = { ...docData, id: docRef.id };
-    saveLocalCachedSubmission(updatedSub);
-    return { success: true, id: docRef.id };
+
+    // Race against 5s timeout to prevent hanging on poor network
+    const docRef = await Promise.race([
+      firestorePromise,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000))
+    ]);
+
+    if (docRef && 'id' in docRef) {
+      const updatedSub = { ...docData, id: docRef.id };
+      deleteLocalCachedSubmission(fallbackId);
+      saveLocalCachedSubmission(updatedSub);
+      return { success: true, id: docRef.id };
+    }
   } catch (err: any) {
-    console.error('Firestore addDoc error:', err);
-    throw new Error(err?.message || 'Không thể gửi tài liệu lên hệ thống.');
+    console.warn('Firestore addDoc warning (safely retained in persistent store):', err);
   }
+
+  return { success: true, id: fallbackId };
 }
 
 export function getTimestampMs(val: any): number {
@@ -407,9 +425,8 @@ export async function updateContributionFilesCount(
 }
 
 /**
- * Admin action: Approves a contribution.
- * Automatically adds the student to the official permanent leaderboard!
- * Allows specifying custom filesCount if admin reviewed and adjusted it.
+ * Admin action: Approves a contribution atomically.
+ * Updates the contribution document status and upserts/increments the contributor's record on the Leaderboard in a single Firestore transaction.
  */
 export async function approveContribution(
   contribution: FirestoreContribution,
@@ -418,32 +435,76 @@ export async function approveContribution(
 ): Promise<void> {
   const contributionId = contribution.id;
   const finalFilesCount = customFilesCount !== undefined ? Math.max(1, customFilesCount) : (contribution.filesCount || 1);
+  const normalizedMssv = (contribution.studentId || '').trim() ? normalizeStudentId(contribution.studentId) : '';
+  const contributorDocId = normalizedMssv || `contrib_${contribution.id}`;
 
-  // Remove from local cache so it disappears immediately
-  deleteLocalCachedSubmission(contributionId);
+  const contributionRef = doc(db, CONTRIBUTIONS_COLLECTION, contributionId);
+  const contributorRef = doc(db, CONTRIBUTORS_COLLECTION, contributorDocId);
 
-  // Update Firestore
+  // Execute atomic transaction for contribution status & contributor points update
   try {
-    const docRef = doc(db, CONTRIBUTIONS_COLLECTION, contributionId);
-    await updateDoc(docRef, {
-      status: 'approved',
-      filesCount: finalFilesCount,
-      approvedAt: serverTimestamp(),
-      approvedBy: adminName
-    });
-  } catch (err) {
-    console.warn('Firestore approveContribution update error:', err);
-  }
+    await runTransaction(db, async (transaction) => {
+      // 1. Read existing contributor document if it exists
+      const contributorDoc = await transaction.get(contributorRef);
+      const subjectCode = (contribution.targetSubjectCode || '').toUpperCase().trim();
 
-  // Cập nhật người dùng lên Bảng Xếp Hạng chính thức bền vững theo MSSV
-  await registerOrUpdateContributorInLeaderboard(
-    contribution.contributorName,
-    contribution.studentId,
-    contribution.className || '',
-    contribution.targetSubjectCode,
-    finalFilesCount,
-    contribution.email || ''
-  );
+      if (contributorDoc.exists()) {
+        const existing = contributorDoc.data() as Contributor;
+        const updatedFiles = (existing.filesCount || 0) + finalFilesCount;
+        const rankInfo = getRankLevel(updatedFiles);
+
+        transaction.update(contributorRef, {
+          name: (contribution.contributorName || existing.name || '').trim(),
+          studentId: (contribution.studentId || existing.studentId || '').trim(),
+          className: (contribution.className || existing.className || '').trim(),
+          email: (contribution.email || existing.email || '').trim().toLowerCase(),
+          filesCount: updatedFiles,
+          entriesCount: (existing.entriesCount || 0) + 1,
+          badgeTitle: rankInfo.rank,
+          recentUpload: subjectCode ? `Đóng góp tài liệu môn ${subjectCode}` : (existing.recentUpload || 'Đóng góp tài liệu học tập'),
+          specialty: existing.specialty || (subjectCode ? `Chuyên đề ${subjectCode}` : 'Tài liệu CNTT'),
+          verified: true,
+          lastUpdated: serverTimestamp()
+        });
+      } else {
+        const rankInfo = getRankLevel(finalFilesCount);
+        const name = (contribution.contributorName || 'Sinh viên').trim();
+        const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name || 'HCMUE')}`;
+
+        transaction.set(contributorRef, {
+          id: contributorDocId,
+          name,
+          studentId: (contribution.studentId || '').trim(),
+          className: (contribution.className || '').trim(),
+          email: (contribution.email || '').trim().toLowerCase(),
+          avatarUrl,
+          badgeTitle: rankInfo.rank,
+          filesCount: finalFilesCount,
+          entriesCount: 1,
+          rank: 999,
+          specialty: subjectCode ? `Môn ${subjectCode}` : 'Tài liệu CNTT',
+          recentUpload: subjectCode ? `Đóng góp tài liệu môn ${subjectCode}` : 'Đóng góp tài liệu học tập',
+          verified: true,
+          createdAt: serverTimestamp(),
+          lastUpdated: serverTimestamp()
+        });
+      }
+
+      // 2. Update contribution document status to approved
+      transaction.update(contributionRef, {
+        status: 'approved',
+        filesCount: finalFilesCount,
+        approvedAt: serverTimestamp(),
+        approvedBy: adminName
+      });
+    });
+
+    // Remove from in-memory cache
+    deleteLocalCachedSubmission(contributionId);
+  } catch (err) {
+    console.error('Firestore atomic approveContribution error:', err);
+    throw err;
+  }
 }
 
 /**
@@ -707,126 +768,182 @@ export async function searchContributionsByStudent(query: string): Promise<Fires
   });
 }
 
-import { onSnapshot } from 'firebase/firestore';
-
 /**
- * Subscribe to Hall of Fame Contributors from Firestore in real-time (no localStorage).
+ * Subscribe to Hall of Fame Contributors in real-time (both local events and Firestore).
  */
 export function subscribeToContributors(
   callback: (contributors: Contributor[]) => void,
   maxLimit = 100
 ): () => void {
+  // Emit initial memory state immediately
+  callback(getStoredContributors());
+
+  // Listen to local in-app updates
+  const handleLocalUpdate = (e: any) => {
+    if (e?.detail) {
+      callback(e.detail);
+    } else {
+      callback(getStoredContributors());
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener(CONTRIBUTORS_UPDATED_EVENT, handleLocalUpdate);
+  }
+
   const q = query(
     collection(db, CONTRIBUTORS_COLLECTION),
     orderBy('filesCount', 'desc'),
     limit(maxLimit)
   );
 
-  return onSnapshot(q, (snapshot) => {
-    const list: Contributor[] = [];
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data() as Contributor;
-      list.push({ ...data, id: docSnap.id });
-    });
+  let unsubscribeFirestore = () => {};
+  try {
+    unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+      const list: Contributor[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as Contributor;
+        list.push({ ...data, id: docSnap.id });
+      });
 
-    // Merge with existing base contributors to ensure no entries are lost
-    const baseContributors = getStoredContributors();
-    const map = new Map<string, Contributor>();
-    baseContributors.forEach(c => {
-      const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
-      map.set(key, c);
+      // Merge with existing base contributors to ensure no entries are lost
+      const baseContributors = getStoredContributors();
+      const map = new Map<string, Contributor>();
+      baseContributors.forEach(c => {
+        const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
+        map.set(key, c);
+      });
+      list.forEach(c => {
+        const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
+        map.set(key, c);
+      });
+      const mergedList = Array.from(map.values())
+        .sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+      
+      // Dynamic ranking mapping
+      const rankedList = mergedList.map((item, idx) => ({
+        ...item,
+        rank: idx + 1
+      }));
+      setMemoryContributors(rankedList);
+      callback(rankedList);
+    }, (err) => {
+      console.warn('Real-time contributors subscription error:', err);
     });
-    list.forEach(c => {
-      const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
-      map.set(key, c);
-    });
-    const mergedList = Array.from(map.values())
-      .sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
-    
-    // Dynamic ranking mapping
-    const rankedList = mergedList.map((item, idx) => ({
-      ...item,
-      rank: idx + 1
-    }));
-    setMemoryContributors(rankedList);
-    callback(rankedList);
-  }, (err) => {
-    console.warn('Real-time contributors subscription error:', err);
-  });
+  } catch (err) {
+    console.warn('Could not initialize contributors Firestore listener:', err);
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(CONTRIBUTORS_UPDATED_EVENT, handleLocalUpdate);
+    }
+    unsubscribeFirestore();
+  };
 }
 
 /**
- * Subscribe to all contributions in real-time from Firestore (no localStorage).
+ * Subscribe to all contributions in real-time (both local events and Firestore).
  */
 export function subscribeToContributions(
   callback: (contributions: FirestoreContribution[]) => void,
   maxLimit = 150
 ): () => void {
+  // Helper to get and deliver combined list
+  const deliverCurrentMerged = () => {
+    const localList = getLocalCachedSubmissions();
+    const sorted = [...localList].sort((a, b) => getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt));
+    callback(sorted);
+  };
+
+  // Immediate delivery
+  deliverCurrentMerged();
+
+  // Listen to local update events
+  const handleLocalUpdate = () => {
+    deliverCurrentMerged();
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener(CONTRIBUTIONS_UPDATED_EVENT, handleLocalUpdate);
+  }
+
   const q = query(
     collection(db, CONTRIBUTIONS_COLLECTION),
     orderBy('createdAt', 'desc'),
     limit(maxLimit)
   );
 
-  return onSnapshot(q, (snapshot) => {
-    const firestoreResults: FirestoreContribution[] = [];
-    snapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      firestoreResults.push({
-        id: docSnap.id,
-        targetSubjectCode: data.targetSubjectCode || '',
-        customSubjectName: data.customSubjectName || undefined,
-        assetType: data.assetType || '',
-        driveUrl: data.driveUrl || '',
-        filesCount: data.filesCount || 1,
-        contributorName: data.contributorName || '',
-        studentId: data.studentId || '',
-        className: data.className || '',
-        email: data.email || '',
-        notes: data.notes || '',
-        status: data.status || 'pending',
-        createdAt: data.createdAt,
-        approvedAt: data.approvedAt,
-        approvedBy: data.approvedBy,
-        adminFeedback: data.adminFeedback
+  let unsubscribeFirestore = () => {};
+  try {
+    unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+      const firestoreResults: FirestoreContribution[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        firestoreResults.push({
+          id: docSnap.id,
+          targetSubjectCode: data.targetSubjectCode || '',
+          customSubjectName: data.customSubjectName || undefined,
+          assetType: data.assetType || '',
+          driveUrl: data.driveUrl || '',
+          filesCount: data.filesCount || 1,
+          contributorName: data.contributorName || '',
+          studentId: data.studentId || '',
+          className: data.className || '',
+          email: data.email || '',
+          notes: data.notes || '',
+          status: data.status || 'pending',
+          createdAt: data.createdAt,
+          approvedAt: data.approvedAt,
+          approvedBy: data.approvedBy,
+          adminFeedback: data.adminFeedback
+        });
       });
-    });
 
-    // Merge with in-memory local cached submissions
-    const localList = getLocalCachedSubmissions();
-    const mergedMap = new Map<string, FirestoreContribution>();
-    const seenDriveUrls = new Set<string>();
+      // Merge with local cached submissions
+      const localList = getLocalCachedSubmissions();
+      const mergedMap = new Map<string, FirestoreContribution>();
+      const seenDriveUrls = new Set<string>();
 
-    // Add firestore items first
-    firestoreResults.forEach((item) => {
-      mergedMap.set(item.id, item);
-      if (item.driveUrl) {
-        seenDriveUrls.add(item.driveUrl.trim().toLowerCase());
-      }
-    });
-
-    // Merge local items if not already present and not matching any Firestore item by driveUrl
-    localList.forEach((item: any) => {
-      const cleanUrl = (item.driveUrl || '').trim().toLowerCase();
-      if (cleanUrl && seenDriveUrls.has(cleanUrl)) {
-        // Clean up from local storage/memory since it's already in Firestore
-        deleteLocalCachedSubmission(item.id);
-        return;
-      }
-      if (!mergedMap.has(item.id)) {
+      // Add firestore items first
+      firestoreResults.forEach((item) => {
         mergedMap.set(item.id, item);
-      }
-    });
+        if (item.driveUrl) {
+          seenDriveUrls.add(item.driveUrl.trim().toLowerCase());
+        }
+      });
 
-    const finalResults = Array.from(mergedMap.values());
-    const sorted = finalResults.sort((a, b) => {
-      return getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt);
-    });
+      // Merge local items if not already present and not matching any Firestore item by driveUrl
+      localList.forEach((item: any) => {
+        const cleanUrl = (item.driveUrl || '').trim().toLowerCase();
+        if (cleanUrl && seenDriveUrls.has(cleanUrl)) {
+          deleteLocalCachedSubmission(item.id);
+          return;
+        }
+        if (!mergedMap.has(item.id)) {
+          mergedMap.set(item.id, item);
+        }
+      });
 
-    callback(sorted);
-  }, (err) => {
-    console.warn('Real-time contributions subscription error:', err);
-  });
+      const finalResults = Array.from(mergedMap.values());
+      const sorted = finalResults.sort((a, b) => {
+        return getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt);
+      });
+
+      callback(sorted);
+    }, (err) => {
+      console.warn('Real-time contributions subscription error:', err);
+    });
+  } catch (err) {
+    console.warn('Could not initialize contributions Firestore listener:', err);
+  }
+
+  return () => {
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(CONTRIBUTIONS_UPDATED_EVENT, handleLocalUpdate);
+    }
+    unsubscribeFirestore();
+  };
 }
 
 /**

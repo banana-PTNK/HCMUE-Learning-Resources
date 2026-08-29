@@ -97,49 +97,148 @@ export function parseDayOfWeek(raw: any): number {
 
 /**
  * Parse periods (start, end)
- * Handles separated start/end, range strings ("1-3", "7->9", "4..6", "1,2,3"), and start + duration
+ * Strict domain rule:
+ * - A single course session/class slot lasts at most 3 to 4 periods.
+ * - Standard shifts:
+ *   + Early morning: Periods 1-3 or 1-4
+ *   + Late morning: Periods 4-6, 3-6, or 4-7
+ *   + Early afternoon: Periods 7-9 or 7-10
+ *   + Late afternoon: Periods 10-12 or 10-13
+ *   + Evening: Periods 13-15
+ * - STRICT CONSTRAINT: No class session ever spans 1-12 or 1-6. Any over-extended range is clamped to 3-4 periods.
  */
 export function parsePeriods(startRaw: any, endRaw?: any, durationRaw?: any): { start: number; end: number } {
-  const startStr = String(startRaw || '').trim();
-  const endStr = String(endRaw || '').trim();
+  const combinedText = `${String(startRaw || '')} ${String(endRaw || '')}`.toLowerCase().trim();
   const duration = parseInt(String(durationRaw || '0').replace(/[^\d]/g, ''), 10);
 
-  // Check if startRaw contains a range like "1-3", "1 - 3", "7->9", "4..6", "1,2,3"
-  if (startStr && (startStr.includes('-') || startStr.includes('->') || startStr.includes('..') || startStr.includes(','))) {
-    const numbers = startStr.match(/\d+/g);
-    if (numbers && numbers.length >= 2) {
-      const first = parseInt(numbers[0], 10) || 1;
-      const last = parseInt(numbers[numbers.length - 1], 10) || first;
-      return {
-        start: Math.max(1, Math.min(12, first)),
-        end: Math.max(first, Math.min(12, last))
-      };
-    } else if (numbers && numbers.length === 1) {
-      const single = parseInt(numbers[0], 10) || 1;
-      return {
-        start: Math.max(1, Math.min(12, single)),
-        end: Math.max(1, Math.min(12, duration > 0 ? single + duration - 1 : single + 2))
-      };
+  // 1. Shift / Ca keyword heuristics
+  if (combinedText.includes('ca 1') || combinedText.includes('sáng 1') || combinedText.includes('ca sáng 1')) {
+    return { start: 1, end: duration === 4 ? 4 : 3 };
+  }
+  if (combinedText.includes('ca 2') || combinedText.includes('sáng 2') || combinedText.includes('ca sáng 2')) {
+    return { start: 4, end: duration === 4 ? 7 : 6 };
+  }
+  if (combinedText.includes('ca 3') || combinedText.includes('chiều 1') || combinedText.includes('chieu 1') || combinedText.includes('ca chiều 1')) {
+    return { start: 7, end: duration === 4 ? 10 : 9 };
+  }
+  if (combinedText.includes('ca 4') || combinedText.includes('chiều 2') || combinedText.includes('chieu 2') || combinedText.includes('ca chiều 2')) {
+    return { start: 10, end: duration === 4 ? 13 : 12 };
+  }
+  if (combinedText.includes('ca 5') || combinedText.includes('ca tối') || combinedText.includes('ca toi') || combinedText.includes('tối') || combinedText.includes('toi')) {
+    return { start: 13, end: 15 };
+  }
+
+  const startStr = String(startRaw || '').trim();
+  const endStr = String(endRaw || '').trim();
+
+  let start = NaN;
+  let end = NaN;
+
+  // 2. Check if startRaw or combined string contains a range like "1-3", "4-6", "7-9", "10-12", "1->3", "4..6", "1,2,3", "4, 5, 6", "7, 8, 9", "10, 11, 12"
+  const rangeMatch = (startStr || combinedText).match(/(\d{1,2})\s*[-–—>to..đến]+\s*(\d{1,2})/i);
+  if (rangeMatch) {
+    const first = parseInt(rangeMatch[1], 10);
+    const last = parseInt(rangeMatch[2], 10);
+    if (!isNaN(first) && !isNaN(last)) {
+      start = first;
+      end = last;
     }
   }
 
-  let start = parseInt(startStr.replace(/[^\d]/g, ''), 10) || 1;
-  let end = parseInt(endStr.replace(/[^\d]/g, ''), 10);
+  // 3. Check for comma separated list: "1,2,3" or "4, 5, 6" or "7, 8, 9" or "10, 11, 12"
+  if (isNaN(start)) {
+    const allNumbers = startStr.match(/\d+/g);
+    if (allNumbers && allNumbers.length >= 2) {
+      start = parseInt(allNumbers[0], 10);
+      end = parseInt(allNumbers[allNumbers.length - 1], 10);
+    }
+  }
 
-  if (!end || isNaN(end) || end < start) {
-    if (duration > 0) {
+  // 4. Check separate start and end integers from separate columns
+  if (isNaN(start)) {
+    start = parseInt(startStr.replace(/[^\d]/g, ''), 10);
+  }
+  if (isNaN(end)) {
+    end = parseInt(endStr.replace(/[^\d]/g, ''), 10);
+  }
+
+  // Fallback if start is missing
+  if (isNaN(start) || start < 1) {
+    if (!isNaN(end) && end >= 1) {
+      start = Math.max(1, end - (duration === 4 ? 3 : 2));
+    } else {
+      if (combinedText.includes('chiều') || combinedText.includes('chieu') || combinedText.includes('afternoon') || combinedText.includes('pm')) {
+        start = 7;
+        end = 9;
+      } else {
+        start = 1;
+        end = 3;
+      }
+    }
+  }
+
+  // Fallback if end is missing or invalid
+  if (isNaN(end) || end < start) {
+    if (duration === 4) {
+      end = start + 3;
+    } else if (duration > 0 && duration <= 4) {
       end = start + duration - 1;
     } else {
-      end = start + 2; // Default 3 periods
+      if (start === 1) end = 3;
+      else if (start === 3) end = 6;
+      else if (start === 4) end = 6;
+      else if (start === 7) end = 9;
+      else if (start === 10) end = 12;
+      else if (start === 13) end = 15;
+      else end = start + 2;
     }
   }
 
-  start = Math.max(1, Math.min(12, start));
-  end = Math.max(start, Math.min(12, end));
-  if (end - start + 1 > 4) {
-    end = start + 2; // Capping to 3 periods (typical session duration)
+  // Strict domain sanitization:
+  // A course session is maximum 3 to 4 periods! No session is ever 1-12 or 1-6.
+  const span = end - start + 1;
+  if (span > 4 || end > 15) {
+    if (start === 1) {
+      end = (duration === 4 || end === 4) ? 4 : 3;
+    } else if (start === 3) {
+      end = 6;
+    } else if (start === 4 || start === 5) {
+      end = (duration === 4 || end === 7) ? 7 : 6;
+    } else if (start === 7 || start === 8) {
+      end = (duration === 4 || end === 10) ? 10 : 9;
+    } else if (start === 10 || start === 11) {
+      end = (duration === 4 || end === 13) ? 13 : 12;
+    } else if (start === 13) {
+      end = 15;
+    } else {
+      end = Math.min(15, start + 2);
+    }
   }
+
+  start = Math.max(1, Math.min(15, start));
+  end = Math.max(start, Math.min(15, end));
+
   return { start, end };
+}
+
+/**
+ * Checks if a token string contains period interval or shift definition
+ */
+export function extractPeriodFromToken(tok: string): { matched: boolean; start: number; end: number } {
+  if (!tok) return { matched: false, start: 1, end: 3 };
+  const clean = tok.trim().toLowerCase();
+
+  // Pattern: "tiết 4-6", "t4-6", "t.4-6", "4-6", "4 - 6", "(4-6)", "tiết 7-9", "t7-9", "7-9", "10-12"
+  if (
+    /^(tiết|tiet|t\.?|ca)?\s*\d{1,2}\s*[-–—>to..đến,]+\s*\d{1,2}/i.test(clean) ||
+    /^\(?\d{1,2}\s*[-–—>to..đến]\s*\d{1,2}\)?$/i.test(clean) ||
+    /^(tiết|tiet|t\.?)\s*\d{1,2}$/i.test(clean) ||
+    /^(ca\s*[1-5]|ca\s*(sáng|chiều|tối))/i.test(clean)
+  ) {
+    const { start, end } = parsePeriods(tok);
+    return { matched: true, start, end };
+  }
+  return { matched: false, start: 1, end: 3 };
 }
 
 /**
@@ -520,9 +619,22 @@ export async function parseExcelOrCsvFileNonBlocking(
         let weeks = colMap['weeks'] !== undefined ? String(row[colMap['weeks']] || '').trim() : '';
 
         const dayRaw = colMap['dayOfWeek'] !== undefined ? row[colMap['dayOfWeek']] : '';
-        const startRaw = colMap['startPeriod'] !== undefined ? row[colMap['startPeriod']] : (colMap['periodCombined'] !== undefined ? row[colMap['periodCombined']] : '');
-        const endRaw = colMap['endPeriod'] !== undefined ? row[colMap['endPeriod']] : '';
+        let startRaw = colMap['startPeriod'] !== undefined ? row[colMap['startPeriod']] : (colMap['periodCombined'] !== undefined ? row[colMap['periodCombined']] : '');
+        let endRaw = colMap['endPeriod'] !== undefined ? row[colMap['endPeriod']] : '';
         const durationRaw = colMap['duration'] !== undefined ? row[colMap['duration']] : '';
+
+        // If startRaw is still empty, scan row cells for period strings like "Tiết 4-6", "7-9", "10-12", "Ca 2", "Ca 3"
+        if (!startRaw && !endRaw) {
+          for (let cellIdx = 0; cellIdx < row.length; cellIdx++) {
+            const cellVal = String(row[cellIdx] || '').trim();
+            const pCheck = extractPeriodFromToken(cellVal);
+            if (pCheck.matched) {
+              startRaw = pCheck.start;
+              endRaw = pCheck.end;
+              break;
+            }
+          }
+        }
 
         // Continuation row
         if (!courseCode && (dayRaw || startRaw || room) && lastCourseCode) {
@@ -638,16 +750,18 @@ export async function parseRawTextScheduleNonBlocking(
         const tok = tokens[i];
         if (/^(thứ|t|thu)?\s*[2-8]$/i.test(tok) || /^(hai|ba|tư|năm|sáu|bảy|nhật)$/i.test(tok)) {
           foundDay = parseDayOfWeek(tok);
-        } else if (/^\d{1,2}\s*-\s*\d{1,2}$/.test(tok) || /^\d{1,2}\s*->\s*\d{1,2}$/.test(tok)) {
-          const { start, end } = parsePeriods(tok);
-          foundStart = start;
-          foundEnd = end;
-        } else if (/^(TS|ThS|PGS|GS|Thầy|Cô|GV|CBGD)/i.test(tok) || (tok.split(' ').length >= 2 && !/\d/.test(tok))) {
-          foundLecturer = cleanLecturerName(tok);
-        } else if (/^[A-Z]\.?\d{2,3}|Lab|PM\d|Cisco|Online|Phòng/i.test(tok)) {
-          foundRoom = cleanRoomName(tok);
-        } else if (/^(nhóm|tổ|lớp|group)\s*\d+/i.test(tok)) {
-          foundGroup = tok;
+        } else {
+          const pCheck = extractPeriodFromToken(tok);
+          if (pCheck.matched) {
+            foundStart = pCheck.start;
+            foundEnd = pCheck.end;
+          } else if (/^(TS|ThS|PGS|GS|Thầy|Cô|GV|CBGD)/i.test(tok) || (tok.split(' ').length >= 2 && !/\d/.test(tok))) {
+            foundLecturer = cleanLecturerName(tok);
+          } else if (/^[A-Z]\.?\d{2,3}|Lab|PM\d|Cisco|Online|Phòng/i.test(tok)) {
+            foundRoom = cleanRoomName(tok);
+          } else if (/^(nhóm|tổ|lớp|group)\s*\d+/i.test(tok)) {
+            foundGroup = tok;
+          }
         }
       }
 
@@ -698,16 +812,18 @@ export function parseRawTextSchedule(text: string): MasterCourseSection[] | null
         const tok = tokens[i];
         if (/^(thứ|t|thu)?\s*[2-8]$/i.test(tok) || /^(hai|ba|tư|năm|sáu|bảy|nhật)$/i.test(tok)) {
           foundDay = parseDayOfWeek(tok);
-        } else if (/^\d{1,2}\s*-\s*\d{1,2}$/.test(tok) || /^\d{1,2}\s*->\s*\d{1,2}$/.test(tok)) {
-          const { start, end } = parsePeriods(tok);
-          foundStart = start;
-          foundEnd = end;
-        } else if (/^(TS|ThS|PGS|GS|Thầy|Cô|GV|CBGD)/i.test(tok) || (tok.split(' ').length >= 2 && !/\d/.test(tok))) {
-          foundLecturer = cleanLecturerName(tok);
-        } else if (/^[A-Z]\.?\d{2,3}|Lab|PM\d|Cisco|Online|Phòng/i.test(tok)) {
-          foundRoom = cleanRoomName(tok);
-        } else if (/^(nhóm|tổ|lớp|group)\s*\d+/i.test(tok)) {
-          foundGroup = tok;
+        } else {
+          const pCheck = extractPeriodFromToken(tok);
+          if (pCheck.matched) {
+            foundStart = pCheck.start;
+            foundEnd = pCheck.end;
+          } else if (/^(TS|ThS|PGS|GS|Thầy|Cô|GV|CBGD)/i.test(tok) || (tok.split(' ').length >= 2 && !/\d/.test(tok))) {
+            foundLecturer = cleanLecturerName(tok);
+          } else if (/^[A-Z]\.?\d{2,3}|Lab|PM\d|Cisco|Online|Phòng/i.test(tok)) {
+            foundRoom = cleanRoomName(tok);
+          } else if (/^(nhóm|tổ|lớp|group)\s*\d+/i.test(tok)) {
+            foundGroup = tok;
+          }
         }
       }
 

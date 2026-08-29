@@ -155,12 +155,19 @@ export function buildMasterScheduleExtractionPrompt(options?: {
     `   - Trích xuất CHÍNH XÁC ký hiệu phòng thực tế (Ví dụ: "D.207 LVS", "B.114", "A.414", "I.203", "I.102", "C.305", "Lab 1 (D.101)", "PM3", "Online", "HT.A"...).`,
     `   - Không gán phòng giả định. Nếu ô trống, gán "Chưa xếp phòng".`,
     ``,
-    `6. QUY TẮC MÃ LỚP HỌC PHẦN (classCode) & MÃ HỌC PHẦN (courseCode):`,
+    `6. QUY TẮC BẮT BUỘC CHO TIẾT HỌC (startPeriod, endPeriod):`,
+    `   - ĐỌC ĐÚNG TIẾT HỌC THỰC TẾ TRONG TÀI LIỆU, TUYỆT ĐỐI KHÔNG mặc định tất cả môn là tiết 1-3.`,
+    `   - Ca Sáng sớm: Tiết 1-3 hoặc 1-4 (startPeriod: 1, endPeriod: 3 hoặc 4)`,
+    `   - Ca Sáng muộn: Tiết 4-6 hoặc 4-7 (startPeriod: 4, endPeriod: 6 hoặc 7)`,
+    `   - Ca Chiều sớm: Tiết 7-9 hoặc 7-10 (startPeriod: 7, endPeriod: 9 hoặc 10)`,
+    `   - Ca Chiều muộn: Tiết 10-12 hoặc 10-13 (startPeriod: 10, endPeriod: 12 hoặc 13)`,
+    `   - Ca Tối: Tiết 13-15 (startPeriod: 13, endPeriod: 15)`,
+    `7. QUY TẮC MÃ LỚP HỌC PHẦN (classCode) & MÃ HỌC PHẦN (courseCode):`,
     `   - "courseCode": Mã môn học cơ sở (Ví dụ: "COMP1801", "COMP1010", "MATH1005").`,
     `   - "classCode": Mã lớp học phần duy nhất (Ví dụ: "COMP180101", "COMP101001", "2411COMP101001").`,
     `   - "classType": "LT" (Lý thuyết) hoặc "TH" (Thực hành/Phòng máy).`,
     `   - "dayOfWeek": Thứ 2 = 2, Thứ 3 = 3, ..., Thứ 7 = 7, Chủ Nhật = 8.`,
-    `   - "startPeriod" / "endPeriod": Số nguyên từ 1 đến 12.`,
+    `   - "startPeriod" / "endPeriod": Số nguyên từ 1 đến 15.`,
     `   - "weeks": Chuỗi tuần học (Ví dụ: "1-15", "1-10,12-16").`,
     options?.customCues ? `GHI CHÚ BỔ SUNG TỪ NGƯỜI DÙNG: ${options.customCues}` : ''
   ].filter(Boolean).join('\n');
@@ -1166,7 +1173,7 @@ const AiSchedulePageComponent: React.FC<AiSchedulePageProps> = ({ onNavigate }) 
                   runScheduler(selectedCourseCodes, next);
                 }}
                 onSubmit={() => {
-                  runScheduler();
+                  runScheduler(selectedCourseCodes, constraints);
                   setActiveStage(3);
                   confetti({ particleCount: 50, spread: 60 });
                 }}

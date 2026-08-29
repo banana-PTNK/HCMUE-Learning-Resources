@@ -494,26 +494,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     const count = Math.max(1, filesCountToCredit);
 
     try {
-      // 1. Instant optimistic update in local state - remove the item completely
+      // 1. Instant optimistic update in local state - remove the item from queue
       setContributions((prev) => prev.filter((c) => c.id !== item.id));
       setApproveModalItem(null);
 
-      // 2. Perform approve in Firestore and recalculate Leaderboard in the background
-      approveContribution(item, 'Admin', count).then(() => {
-        // Immediately refresh local Leaderboard state
-        const updatedLeaderboard = getStoredContributors();
-        setLeaderboardList(updatedLeaderboard);
-      }).catch((err) => {
-        console.error('Firestore approval error:', err);
-        toast.error('Lỗi lưu trữ', 'Không thể đồng bộ trạng thái duyệt lên máy chủ.');
-      });
+      // 2. Perform atomic approval in Firestore transaction (updates contribution status & increments contributor record)
+      await approveContribution(item, 'Admin', count);
 
       toast.success(
         'Đã duyệt tài liệu thành công!',
         `Đã công nhận ${count} tài liệu cho ${item.contributorName} và cập nhật Bảng Xếp Hạng.`
       );
-    } catch {
-      toast.error('Lỗi phê duyệt', 'Không thể cập nhật trạng thái');
+    } catch (err: any) {
+      console.error('Firestore approval error:', err);
+      toast.error('Lỗi phê duyệt', 'Không thể đồng bộ trạng thái duyệt lên máy chủ.');
+      // Rollback optimistic update by fetching latest contributions
+      loadContributions();
     } finally {
       setActionProcessingId(null);
     }

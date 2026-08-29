@@ -40,10 +40,19 @@ export function getSolutionHighlight(sol: TimetableSolution, index: number, allS
 
   // Distinct descriptive strategies
   if (index === 0) {
+    if (morningCount > 0 && afternoonCount > 0) return '✨ Tối ưu nhất • Phân bổ Cả ngày (Sáng & Chiều)';
     if (afternoonCount === 0) return '✨ Tối ưu cao nhất • 100% học ca Sáng';
-    if (morningCount >= nonVle.length * 0.7) return '✨ Tối ưu cao nhất • Học gọn ca Sáng';
+    if (morningCount === 0) return '✨ Tối ưu cao nhất • 100% học ca Chiều';
     if (activeDays.length <= 4) return `✨ Tối ưu cao nhất • Gom gọn ${activeDays.length} ngày/tuần`;
     return '✨ Điểm tối ưu cao nhất • Phân bổ lịch hài hòa';
+  }
+
+  // Full day mixed
+  if (morningCount > 0 && afternoonCount > 0) {
+    if (activeDays.length <= 3) {
+      return `✨ Gom lịch Cả ngày (${activeDays.length} ngày) • Nhiều ngày nghỉ trọn vẹn`;
+    }
+    return '✨ Lịch Cả ngày linh hoạt • Đan xen Sáng & Chiều';
   }
 
   // Pure Morning

@@ -266,9 +266,11 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       avoidSunday: true,
       avoidEarlyMorning: false,
       avoidLateAfternoon: false,
-      freeFridayAfternoon: true,
+      freeFridayAfternoon: false,
       compactDays: true,
-      preferredPeriod: 'all'
+      preferredShift: 'all',
+      preferredPeriod: 'all',
+      avoidSplitDays: false
     };
   });
 

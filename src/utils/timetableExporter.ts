@@ -48,6 +48,8 @@ export async function exportTimetableToPng(
       pixelRatio: 2.5,
       backgroundColor: options.theme === 'light' ? '#ffffff' : '#020617',
       cacheBust: true,
+      skipFonts: true,
+      fontEmbedCSS: '',
       width: fullWidth,
       height: fullHeight,
       style: {
@@ -93,6 +95,8 @@ export async function copyTimetableImageToClipboard(
       pixelRatio: 2.5,
       backgroundColor: '#020617',
       cacheBust: true,
+      skipFonts: true,
+      fontEmbedCSS: '',
       width: fullWidth,
       height: fullHeight,
       style: {
@@ -149,6 +153,8 @@ export async function exportTimetableToPdf(
       pixelRatio: 2.5,
       backgroundColor: options.theme === 'light' ? '#ffffff' : '#020617',
       cacheBust: true,
+      skipFonts: true,
+      fontEmbedCSS: '',
       width: fullWidth,
       height: fullHeight,
       style: {

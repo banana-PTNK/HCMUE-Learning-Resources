@@ -531,6 +531,105 @@ function healCourseCode(raw: string): string {
   return code;
 }
 
+/**
+ * Robust server-side period extraction supporting:
+ * - Direct numeric pairs (startPeriod, endPeriod)
+ * - Vietnamese period range strings ("Tiết 4-6", "7-9", "10-12", "1-3", "Tiết 7 -> 9", "4..6", "13-15", "3-6", "7-10")
+ * - Shift / Ca tokens ("Ca 1", "Ca 2", "Ca 3", "Ca 4", "Ca 5", "Sáng 1", "Sáng 2", "Chiều 1", "Chiều 2", "Chiều", "Sáng", "Tối")
+ * - Comma separated lists ("4, 5, 6", "7, 8, 9", "10, 11, 12")
+ * STRICT CONSTRAINT: Maximum 3 to 4 periods per session. Never spans 1-12 or 1-6.
+ */
+function parseServerPeriods(item: any): { start: number; end: number } {
+  const startField = item.startPeriod ?? item.tietBatDau ?? item.tietBd ?? item.tiet_bd ?? item.tietStart ?? item.tuTiet ?? item.tu_tiet ?? item.tbd ?? item.fromPeriod ?? item.start ?? item.start_period ?? null;
+  const endField = item.endPeriod ?? item.tietKetThuc ?? item.tietKt ?? item.tiet_kt ?? item.tietEnd ?? item.denTiet ?? item.den_tiet ?? item.tkt ?? item.toPeriod ?? item.end ?? item.end_period ?? null;
+  const combinedField = item.periodCombined ?? item.tietHoc ?? item.tiet ?? item.period ?? item.periods ?? item.ca ?? item.caHoc ?? item.ca_hoc ?? item.thoiGian ?? item.time ?? item.tiet_hoc ?? '';
+
+  const combinedText = `${String(startField || '')} ${String(endField || '')} ${String(combinedField || '')}`.toLowerCase().trim();
+
+  // 1. Shift / Ca keyword heuristics
+  if (combinedText.includes('ca 1') || combinedText.includes('sáng 1') || combinedText.includes('ca sáng 1')) return { start: 1, end: 3 };
+  if (combinedText.includes('ca 2') || combinedText.includes('sáng 2') || combinedText.includes('ca sáng 2')) return { start: 4, end: 6 };
+  if (combinedText.includes('ca 3') || combinedText.includes('chiều 1') || combinedText.includes('chieu 1') || combinedText.includes('ca chiều 1')) return { start: 7, end: 9 };
+  if (combinedText.includes('ca 4') || combinedText.includes('chiều 2') || combinedText.includes('chieu 2') || combinedText.includes('ca chiều 2')) return { start: 10, end: 12 };
+  if (combinedText.includes('ca 5') || combinedText.includes('ca tối') || combinedText.includes('tối') || combinedText.includes('toi')) return { start: 13, end: 15 };
+
+  let start = NaN;
+  let end = NaN;
+
+  // 2. Regex for range formats: "4-6", "7-9", "10-12", "1-3", "4..6", "7->9", "4 to 6", "từ 4 đến 6", "tiet 4-6"
+  const rangeMatch = combinedText.match(/(\d{1,2})\s*[-–—>to..đến]+\s*(\d{1,2})/i);
+  if (rangeMatch) {
+    const s = parseInt(rangeMatch[1], 10);
+    const e = parseInt(rangeMatch[2], 10);
+    if (!isNaN(s) && !isNaN(e) && s >= 1 && e >= s && s <= 15) {
+      start = s;
+      end = e;
+    }
+  }
+
+  // 3. Comma separated list e.g. "4, 5, 6" or "7,8,9" or "10, 11, 12"
+  if (isNaN(start)) {
+    const allNums = combinedText.match(/\d+/g);
+    if (allNums && allNums.length >= 2) {
+      const s = parseInt(allNums[0], 10);
+      const e = parseInt(allNums[allNums.length - 1], 10);
+      if (!isNaN(s) && !isNaN(e) && s >= 1 && e >= s && s <= 15) {
+        start = s;
+        end = e;
+      }
+    }
+  }
+
+  // 4. Standalone integers
+  if (isNaN(start)) {
+    start = parseInt(String(startField || '').replace(/[^\d]/g, ''), 10);
+  }
+  if (isNaN(end)) {
+    end = parseInt(String(endField || '').replace(/[^\d]/g, ''), 10);
+  }
+
+  if (isNaN(start) || start < 1) {
+    if (!isNaN(end) && end >= 1) {
+      start = Math.max(1, end - 2);
+    } else {
+      if (combinedText.includes('chiều') || combinedText.includes('chieu') || combinedText.includes('afternoon') || combinedText.includes('pm')) {
+        start = 7;
+        end = 9;
+      } else {
+        start = 1;
+        end = 3;
+      }
+    }
+  }
+
+  if (isNaN(end) || end < start) {
+    if (start === 1) end = 3;
+    else if (start === 3) end = 6;
+    else if (start === 4) end = 6;
+    else if (start === 7) end = 9;
+    else if (start === 10) end = 12;
+    else if (start === 13) end = 15;
+    else end = start + 2;
+  }
+
+  // Enforce 3-4 periods domain limit
+  const span = end - start + 1;
+  if (span > 4 || end > 15) {
+    if (start === 1) end = end === 4 ? 4 : 3;
+    else if (start === 3) end = 6;
+    else if (start === 4 || start === 5) end = end === 7 ? 7 : 6;
+    else if (start === 7 || start === 8) end = end === 10 ? 10 : 9;
+    else if (start === 10 || start === 11) end = end === 13 ? 13 : 12;
+    else if (start === 13) end = 15;
+    else end = Math.min(15, start + 2);
+  }
+
+  start = Math.max(1, Math.min(15, start));
+  end = Math.max(start, Math.min(15, end));
+
+  return { start, end };
+}
+
 // Strict normalizer & validator for master schedule sections
 function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string): any[] {
   if (!Array.isArray(rawList)) return [];
@@ -596,27 +695,10 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
       continue;
     }
 
-    // 4. Periods (MUST BE 1..12 and start <= end)
-    let start = Number(item.startPeriod ?? item.tietBatDau ?? item.tietBd ?? item.tiet_bd ?? item.tietStart ?? 0);
-    let end = Number(item.endPeriod ?? item.tietKetThuc ?? item.tietKt ?? item.tiet_kt ?? item.tietEnd ?? 0);
-
-    const periodCombined = String(item.periodCombined ?? item.tietHoc ?? item.tiet ?? '').trim();
-    if ((!start || !end) && periodCombined) {
-      const matchPeriod = periodCombined.match(/(\d{1,2})\s*[-–—>to]+\s*(\d{1,2})/i);
-      if (matchPeriod) {
-        start = parseInt(matchPeriod[1], 10);
-        end = parseInt(matchPeriod[2], 10);
-      }
-    }
-
-    if (!start || isNaN(start) || start < 1 || start > 12) {
+    // 4. Periods (MUST BE 1..15 and start <= end, extracted with full shift support)
+    const { start, end } = parseServerPeriods(item);
+    if (!start || isNaN(start) || start < 1 || start > 15) {
       continue;
-    }
-    if (!end || isNaN(end) || end < start || end > 12) {
-      end = Math.min(12, start + 2);
-    }
-    if (end - start + 1 > 4) {
-      end = start + 2; // Capping to 3 periods (typical session duration)
     }
 
     // 5. Lecturer (MUST BE PRESENT & VALID)
@@ -710,33 +792,61 @@ app.post('/api/ai', async (req, res) => {
       const presetText = universityPreset ? `Quy chuẩn trường: ${universityPreset}.` : '';
       const promptText = customPrompt ? `YÊU CẦU BỔ SUNG TỪ NGƯỜI DÙNG: ${customPrompt}` : '';
 
-      const systemInstruction = `Bạn là chuyên gia xử lý và ghép nối dữ liệu Thời khóa biểu đại học từ tài liệu nhiều cột phân tách.
+      const systemInstruction = `Bạn là chuyên gia xử lý và ghép nối dữ liệu Thời khóa biểu đại học từ tài liệu nhiều cột phân tách hoặc ma trận lịch học.
 NHIỆM VỤ: Trích xuất CHÍNH XÁC và DUY NHẤT các lớp học phần và buổi học có trong tài liệu được cung cấp.
 TUYỆT ĐỐI CẤM BỊA ĐẶT / SUY DIỄN: Chỉ trích xuất các mục có thực trong tài liệu. Không thêm bất kỳ môn học nào ngoài tài liệu.
 ${presetText}
 ${promptText}
 
-RÀNG BUỘC GHÉP NỐI QUAN HỆ CHẶT CHẼ:
-- Dùng STT (Số thứ tự) hoặc Mã LHP làm khóa chính JOIN chính xác:
-  STT, courseCode (Mã HP), classCode (Mã LHP), courseName (Tên môn), credits (Số TC), dayOfWeek (2-8, CN là 8), startPeriod (1-12), endPeriod (1-12), room (Phòng), lecturer (Giảng viên), classType ("LT" hoặc "TH"), group ("Lớp 01", "Nhóm TH 01").
-- Dữ liệu Giảng viên và Phòng học ở dòng STT = k BẮT BUỘC phải map đúng 100% vào Mã LHP và Tên môn ở dòng STT = k.
-- Nếu một ô Giảng viên hoặc Phòng học bị trống/gạch ngang (-), gán giá trị tương ứng ("Chưa phân công" / "Chưa xếp phòng"). Tuyệt đối KHÔNG dồn/trượt dòng.
+RÀNG BUỘC NGHIỆP VỤ CỐT LÕI (BẮT BUỘC TUÂN THỦ 100%):
+1. THỜI LƯỢNG MỖI BUỔI HỌC (SESSION):
+   - MỖI MÔN CHỈ HỌC TỐI ĐA 3 ĐẾN 4 TIẾT TRONG MỘT BUỔI HỌC.
+   - TUYỆT ĐỐI KHÔNG CÓ MÔN NÀO HỌC TỪ TIẾT 1 ĐẾN 12 VÀ KHÔNG CÓ MÔN NÀO HỌC TỪ TIẾT 1 ĐẾN 6.
+   - Các ca học tiêu chuẩn:
+     * Ca Sáng sớm: Tiết 1-3 hoặc 1-4 (startPeriod: 1, endPeriod: 3 hoặc 4)
+     * Ca Sáng muộn: Tiết 4-6, 3-6 hoặc 4-7 (startPeriod: 4 hoặc 3, endPeriod: 6 hoặc 7)
+     * Ca Chiều sớm: Tiết 7-9 hoặc 7-10 (startPeriod: 7, endPeriod: 9 hoặc 10)
+     * Ca Chiều muộn: Tiết 10-12 hoặc 10-13 (startPeriod: 10, endPeriod: 12 hoặc 13)
+     * Ca Tối: Tiết 13-15 (startPeriod: 13, endPeriod: 15)
+2. MỘT LỚP HỌC PHẦN CÓ NHIỀU BUỔI / NHIỀU NGÀY KHÁC NHAU:
+   - Một Lớp học phần (cùng classCode/courseCode) có thể học 2 hoặc nhiều buổi trong tuần (ví dụ Buổi 1 học Thứ 4 tiết 10-12 và Buổi 2 học Thứ 5 tiết 4-6).
+   - Với mỗi buổi học, hãy trả về 1 object riêng biệt trong JSON Array, giữ nguyên classCode, courseCode, courseName, credits, lecturer... và điền đúng dayOfWeek, startPeriod, endPeriod, room của buổi học đó.
+3. KHÓA CHÍNH VÀ GHÉP CỘT:
+   - Dùng STT (Số thứ tự) hoặc Mã LHP làm khóa chính JOIN chính xác:
+     STT, courseCode (Mã HP), classCode (Mã LHP), courseName (Tên môn), credits (Số TC), dayOfWeek (2-8, CN là 8), startPeriod (1-15), endPeriod (1-15), room (Phòng), lecturer (Giảng viên), classType ("LT" hoặc "TH"), group ("Lớp 01", "Nhóm TH 01").
+   - Dữ liệu Giảng viên và Phòng học ở dòng STT = k BẮT BUỘC phải map đúng 100% vào Mã LHP và Tên môn ở dòng STT = k.
+   - Nếu một ô Giảng viên hoặc Phòng học bị trống/gạch ngang (-), gán giá trị tương ứng ("Chưa phân công" / "Chưa xếp phòng"). Tuyệt đối KHÔNG dồn/trượt dòng.
 
 SCHEMA ĐẦU RA (JSON Array thuần túy):
 [
   {
-    "stt": 1,
-    "courseCode": "COMP1802",
-    "classCode": "2511COMP180202",
-    "courseName": "Cấu trúc dữ liệu và giải thuật",
+    "stt": 22,
+    "courseCode": "COMP1010",
+    "classCode": "COMP101007",
+    "courseName": "Lập trình cơ bản",
     "credits": 3,
     "classType": "LT",
-    "group": "Lớp 02 (LT)",
-    "dayOfWeek": 2,
-    "startPeriod": 1,
-    "endPeriod": 3,
-    "room": "D.207 LVS",
-    "lecturer": "TS. Nguyễn Trần Phi Phượng",
+    "group": "Lớp 07",
+    "dayOfWeek": 4,
+    "startPeriod": 10,
+    "endPeriod": 12,
+    "room": "C.305",
+    "lecturer": "Nguyễn Thị Ngọc Hoa",
+    "weeks": "1-15"
+  },
+  {
+    "stt": 22,
+    "courseCode": "COMP1010",
+    "classCode": "COMP101007",
+    "courseName": "Lập trình cơ bản",
+    "credits": 3,
+    "classType": "LT",
+    "group": "Lớp 07",
+    "dayOfWeek": 5,
+    "startPeriod": 4,
+    "endPeriod": 6,
+    "room": "C.305",
+    "lecturer": "Nguyễn Thị Ngọc Hoa",
     "weeks": "1-15"
   }
 ]
@@ -756,7 +866,7 @@ Chỉ trả về DUY NHẤT một JSON Array hợp lệ.`;
                 }
               },
               {
-                text: 'Hãy đọc toàn bộ tài liệu thời khóa biểu này và trích xuất tất cả các lớp học phần có trong tài liệu theo đúng cấu trúc JSON Array. Không tự suy diễn môn ngoài tài liệu.'
+                text: 'Hãy đọc toàn bộ tài liệu thời khóa biểu này và trích xuất tất cả các lớp học phần có trong tài liệu theo đúng cấu trúc JSON Array. Đảm bảo startPeriod và endPeriod phản ánh chính xác tiết học của từng buổi sáng/chiều/tối, không mặc định tiết 1-3. Không tự suy diễn môn ngoài tài liệu.'
               }
             ]
           }
@@ -767,7 +877,7 @@ Chỉ trả về DUY NHẤT một JSON Array hợp lệ.`;
             role: 'user',
             parts: [
               {
-                text: `Hãy trích xuất danh mục thời khóa biểu từ văn bản/bảng dữ liệu sau (chỉ trích xuất các môn có trong văn bản):\n${textData}`
+                text: `Hãy trích xuất danh mục thời khóa biểu từ văn bản/bảng dữ liệu sau (chỉ trích xuất các môn có trong văn bản, đọc đúng tiết học startPeriod/endPeriod):\n${textData}`
               }
             ]
           }
@@ -813,8 +923,17 @@ Chỉ trả về DUY NHẤT một JSON Array hợp lệ.`;
       const fileData = fileBase64 || imageBase64;
       const detectedMimeType = mimeType || 'image/jpeg';
 
-      const systemInstruction = `Bạn là Trợ lý Vision trích xuất thời khóa biểu cá nhân của sinh viên.
-NGUYÊN TẮC:
+      const systemInstruction = `Bạn là Trợ lý Vision trích xuất thời khóa biểu cá nhân của sinh viên từ hình ảnh bảng lưới hoặc danh sách.
+NGUYÊN TẮC QUAN TRỌNG VỀ TIẾT HỌC (BẮT BUỘC):
+- MỖI MÔN CHỈ HỌC TỐI ĐA 3 ĐẾN 4 TIẾT TRONG MỘT BUỔI:
+  * TUYỆT ĐỐI KHÔNG CÓ MÔN NÀO HỌC TỪ TIẾT 1 ĐẾN 12 HAY TỪ TIẾT 1 ĐẾN 6.
+  * KHÔNG ĐƯỢC mặc định tất cả các môn đều là tiết 1 đến 3.
+  * Hàng Tiết 1-3 hoặc Sáng sớm: "startPeriod": 1, "endPeriod": 3 (hoặc 4)
+  * Hàng Tiết 4-6 hoặc Sáng muộn: "startPeriod": 4, "endPeriod": 6 (hoặc 3-6)
+  * Hàng Tiết 7-9 hoặc Chiều sớm: "startPeriod": 7, "endPeriod": 9 (hoặc 7-10)
+  * Hàng Tiết 10-12 hoặc Chiều muộn: "startPeriod": 10, "endPeriod": 12 (hoặc 10-13)
+  * Hàng Tiết 13-15 hoặc Tối: "startPeriod": 13, "endPeriod": 15
+- Một môn học nhiều buổi/nhiều ngày trong tuần: Trả về mỗi buổi là một phần tử riêng trong mảng JSON.
 - CHỈ trích xuất CHÍNH XÁC các môn học có trong ảnh/dữ liệu được cung cấp.
 - TUYỆT ĐỐI KHÔNG tự bịa đặt môn học không có trong tài liệu.
 - Trả về DUY NHẤT một mảng JSON theo schema:
@@ -825,9 +944,21 @@ NGUYÊN TẮC:
     "endPeriod": 3,
     "subjectName": "Tên môn học",
     "subjectCode": "Mã học phần",
+    "classCode": "Mã lớp",
     "room": "Phòng học",
     "lecturer": "Giảng viên",
     "isLab": false
+  },
+  {
+    "dayOfWeek": 4,
+    "startPeriod": 7,
+    "endPeriod": 9,
+    "subjectName": "Tên môn buổi chiều",
+    "subjectCode": "Mã học phần chiều",
+    "classCode": "Mã lớp chiều",
+    "room": "Phòng học chiều",
+    "lecturer": "Giảng viên",
+    "isLab": true
   }
 ]`;
 
@@ -845,7 +976,7 @@ NGUYÊN TẮC:
                 }
               },
               {
-                text: 'Trích xuất toàn bộ các môn học trong ảnh thời khóa biểu này sang JSON Array.'
+                text: 'Trích xuất toàn bộ các môn học trong ảnh thời khóa biểu này sang JSON Array. Nhìn kỹ từng hàng tiết học (sáng/chiều) để điền đúng startPeriod và endPeriod (1-3, 4-6, 7-9, 10-12).'
               }
             ]
           }
@@ -856,7 +987,7 @@ NGUYÊN TẮC:
             role: 'user',
             parts: [
               {
-                text: `Trích xuất lịch học từ văn bản sau:\n${textData}`
+                text: `Trích xuất lịch học từ văn bản sau (đọc đúng tiết học sáng/chiều):\n${textData}`
               }
             ]
           }
@@ -887,7 +1018,7 @@ NGUYÊN TẮC:
       }
 
       const parsedData = parseJsonArraySafely(responseText);
-      const normalizedData = normalizeExtractedSections(parsedData);
+      const normalizedData = normalizePersonalSchedule(parsedData);
 
       return res.json({
         success: true,

@@ -15,11 +15,36 @@ export const COURSE_COLORS = [
 ];
 
 /**
+ * Period classification helpers:
+ * - Morning (Ca Sáng): Periods 1 to 6 (06:30 - 12:00)
+ * - Afternoon (Ca Chiều): Periods 7 to 12 (12:30 - 17:50)
+ * - Evening (Ca Tối): Periods 13 to 15 (18:00 - 20:30)
+ */
+export function isMorningPeriod(period: number): boolean {
+  return period >= 1 && period <= 6;
+}
+
+export function isAfternoonPeriod(period: number): boolean {
+  return period >= 7 && period <= 12;
+}
+
+export function getSectionShift(sec: MasterCourseSection): 'morning' | 'afternoon' | 'evening' | 'mixed' | 'vle' {
+  if (!sec || isVLESection(sec)) return 'vle';
+  const start = Number(sec.startPeriod);
+  const end = Number(sec.endPeriod);
+  if (end <= 6) return 'morning';
+  if (start >= 7 && end <= 12) return 'afternoon';
+  if (start >= 13) return 'evening';
+  return 'mixed';
+}
+
+/**
  * Detects if a section or class session is a VLE (Virtual Learning Environment / Online) session.
- * VLE sessions do not require fixed physical classroom slots and do not clash with in-person schedules.
+ * VLE/Online sessions do not require fixed physical classroom slots and bypass physical clash checks.
  */
 export function isVLESection(sec: MasterCourseSection): boolean {
   if (!sec) return false;
+  if (sec.isOnline) return true;
   const room = (sec.room || '').toUpperCase();
   const type = (sec.classType || '').toUpperCase();
   const group = (sec.group || '').toUpperCase();
@@ -28,16 +53,27 @@ export function isVLESection(sec: MasterCourseSection): boolean {
   return (
     room.includes('VLE') ||
     room.includes('ONLINE') ||
+    room.includes('TRỰC TUYẾN') ||
+    room.includes('TRUC TUYEN') ||
+    room.includes('ZOOM') ||
+    room.includes('TEAMS') ||
+    room.includes('MEET') ||
     type.includes('VLE') ||
+    type.includes('ONLINE') ||
     group.includes('VLE') ||
+    group.includes('ONLINE') ||
     code.includes('VLE') ||
-    name.includes('VLE')
+    code.includes('ONLINE') ||
+    name.includes('VLE') ||
+    name.includes('ONLINE')
   );
 }
 
 /**
- * Checks if two course sections have a time clash.
- * VLE / Online sessions are excluded from physical time clashes.
+ * Checks if two individual course section sessions have a time clash.
+ * Multi-session courses (e.g., Theory on Morning Mon + Lab on Afternoon Thu) are split into individual time slots
+ * and verified per individual slot rather than grouping entire course days into monolithic blocks.
+ * Online / VLE sessions bypass physical room and time clash checks.
  */
 export function hasTimeClash(a: MasterCourseSection, b: MasterCourseSection): boolean {
   if (!a || !b) return false;
@@ -54,8 +90,9 @@ export function hasTimeClash(a: MasterCourseSection, b: MasterCourseSection): bo
 
   if (isNaN(startA) || isNaN(endA) || isNaN(startB) || isNaN(endB)) return false;
 
-  // Overlap condition: neither ends before the other starts
-  return !(endA < startB || startA > endB);
+  // Exact period overlap check:
+  // Clash occurs if and only if period intervals overlap: max(startA, startB) <= min(endA, endB)
+  return Math.max(startA, startB) <= Math.min(endA, endB);
 }
 
 /**
@@ -160,13 +197,30 @@ export function generateCourseOptionBundles(
   return uniqueBundles;
 }
 
+export const DEFAULT_SCHEDULE_CONSTRAINTS: ScheduleConstraints = {
+  avoidSaturday: false,
+  avoidSunday: true,
+  avoidEarlyMorning: false,
+  avoidLateAfternoon: false,
+  freeFridayAfternoon: false,
+  compactDays: false,
+  preferredShift: 'all',
+  preferredPeriod: 'all',
+  avoidSplitDays: false,
+};
+
 /**
  * Computes a preference and quality score for a candidate schedule.
+ * Fully supports full-day schedules (both Morning and Afternoon) and handles shift preferences accurately.
  */
 export function evaluateScheduleScore(
   sections: MasterCourseSection[],
-  constraints: ScheduleConstraints
+  constraintsInput: Partial<ScheduleConstraints> = {}
 ): { score: number; tags: string[]; clashCount: number; activeDays: number[] } {
+  const constraints: ScheduleConstraints = {
+    ...DEFAULT_SCHEDULE_CONSTRAINTS,
+    ...constraintsInput,
+  };
   let score = 100;
   const tags: string[] = [];
   const activeDaysSet = new Set<number>();
@@ -178,18 +232,34 @@ export function evaluateScheduleScore(
   let morningCount = 0;
   let afternoonCount = 0;
 
-  for (const s of sections) {
-    activeDaysSet.add(s.dayOfWeek);
+  // Track morning/afternoon per day to evaluate split-day preference
+  const dayPeriodsMap = new Map<number, { hasMorning: boolean; hasAfternoon: boolean }>();
 
-    if (s.dayOfWeek === 7) hasSaturday = true;
-    if (s.dayOfWeek === 8) hasSunday = true;
+  for (const s of sections) {
+    if (isVLESection(s)) continue;
+
+    const day = Number(s.dayOfWeek);
+    activeDaysSet.add(day);
+
+    if (day === 7) hasSaturday = true;
+    if (day === 8) hasSunday = true;
 
     if (s.startPeriod === 1) earlyMorningCount++;
     if (s.endPeriod >= 10) lateAfternoonCount++;
-    if (s.dayOfWeek === 6 && s.startPeriod >= 7) fridayAfternoonCount++;
+    if (day === 6 && s.startPeriod >= 7) fridayAfternoonCount++;
 
-    if (s.startPeriod <= 6) morningCount++;
-    if (s.startPeriod >= 7) afternoonCount++;
+    const isMorning = s.startPeriod <= 6;
+    const isAfternoon = s.startPeriod >= 7 || s.endPeriod >= 7;
+
+    if (isMorning) morningCount++;
+    if (isAfternoon) afternoonCount++;
+
+    if (!dayPeriodsMap.has(day)) {
+      dayPeriodsMap.set(day, { hasMorning: false, hasAfternoon: false });
+    }
+    const dayInfo = dayPeriodsMap.get(day)!;
+    if (isMorning) dayInfo.hasMorning = true;
+    if (isAfternoon) dayInfo.hasAfternoon = true;
 
     // Preferred lecturer bonus
     const sCourseCode = (s.courseCode || extractBaseCourseCode(s.classCode)).trim().toUpperCase();
@@ -205,8 +275,48 @@ export function evaluateScheduleScore(
   const clashes = findClashes(sections);
   const clashCount = clashes.length;
 
-  // Massive penalty for clashes
-  score -= clashCount * 200;
+  // Massive penalty for hard clashes
+  score -= clashCount * 500;
+
+  // Study Shift Preference (preferredShift / preferredPeriod)
+  const shiftPref = constraints.preferredShift || constraints.preferredPeriod || 'all';
+
+  if (shiftPref === 'morning') {
+    if (afternoonCount === 0 && morningCount > 0) {
+      score += 120;
+      tags.push('100% Ca Sáng (T1-6)');
+    } else {
+      score += morningCount * 20;
+      score -= afternoonCount * 60;
+      if (morningCount > afternoonCount) {
+        tags.push('Chủ yếu Ca Sáng');
+      }
+    }
+  } else if (shiftPref === 'afternoon') {
+    if (morningCount === 0 && afternoonCount > 0) {
+      score += 120;
+      tags.push('100% Ca Chiều (T7-12)');
+    } else {
+      score += afternoonCount * 20;
+      score -= morningCount * 60;
+      if (afternoonCount > morningCount) {
+        tags.push('Chủ yếu Ca Chiều');
+      }
+    }
+  } else {
+    // 'all' | 'flexible': Full-day scheduling is explicitly welcomed and prioritized
+    if (morningCount > 0 && afternoonCount > 0) {
+      const balanceRatio = Math.min(morningCount, afternoonCount) / Math.max(morningCount, afternoonCount || 1);
+      score += 90 + Math.round(balanceRatio * 40);
+      tags.push('Phân bổ Sáng & Chiều');
+    } else if (morningCount > 0) {
+      score += 15;
+      tags.push('Tập trung Ca Sáng');
+    } else if (afternoonCount > 0) {
+      score += 15;
+      tags.push('Tập trung Ca Chiều');
+    }
+  }
 
   // Constraint penalties & bonuses
   if (constraints.avoidSaturday) {
@@ -227,7 +337,7 @@ export function evaluateScheduleScore(
     }
   }
 
-  if (constraints.avoidEarlyMorning) {
+  if (constraints.avoidEarlyMorning && shiftPref !== 'afternoon') {
     if (earlyMorningCount > 0) {
       score -= earlyMorningCount * 15;
     } else {
@@ -236,7 +346,7 @@ export function evaluateScheduleScore(
     }
   }
 
-  if (constraints.avoidLateAfternoon) {
+  if (constraints.avoidLateAfternoon && shiftPref !== 'morning') {
     if (lateAfternoonCount > 0) {
       score -= lateAfternoonCount * 15;
     } else {
@@ -245,7 +355,7 @@ export function evaluateScheduleScore(
     }
   }
 
-  if (constraints.freeFridayAfternoon) {
+  if (constraints.freeFridayAfternoon && shiftPref !== 'afternoon') {
     if (fridayAfternoonCount > 0) {
       score -= 25;
     } else {
@@ -255,7 +365,7 @@ export function evaluateScheduleScore(
   }
 
   if (constraints.compactDays) {
-    // Reward fewer days: 3 days is ideal, 4 days good, 5-6 days less compact
+    // Reward fewer days: 2-3 days is ideal, 4 days good, 5-6 days less compact
     const daysCount = activeDays.length;
     if (daysCount <= 3) {
       score += 30;
@@ -264,32 +374,28 @@ export function evaluateScheduleScore(
       score += 15;
       tags.push('Học 4 ngày/tuần');
     } else {
-      score -= (daysCount - 4) * 10;
+      score -= (daysCount - 4) * 8;
     }
   }
 
-  if (constraints.preferredPeriod === 'morning') {
-    if (morningCount > afternoonCount) {
-      score += 20;
-      tags.push('Ưu tiên ca sáng');
-    } else {
-      score -= 15;
+  // Soft preference: Avoid split days (both morning and afternoon on the same day)
+  let splitDaysCount = 0;
+  dayPeriodsMap.forEach((info) => {
+    if (info.hasMorning && info.hasAfternoon) {
+      splitDaysCount++;
     }
-  } else if (constraints.preferredPeriod === 'afternoon') {
-    if (afternoonCount > morningCount) {
+  });
+
+  if (constraints.avoidSplitDays) {
+    if (splitDaysCount === 0) {
       score += 20;
-      tags.push('Ưu tiên ca chiều');
+      tags.push('Không xé lẻ ca trong ngày');
     } else {
-      score -= 15;
-    }
-  } else if (constraints.preferredPeriod === 'all') {
-    if (morningCount > 0 && afternoonCount > 0) {
-      score += 15;
-      tags.push('Học cả sáng & chiều');
+      score -= splitDaysCount * 15;
     }
   }
 
-  if (clashCount === 0 && !tags.includes('Không trùng giờ')) {
+  if (clashCount === 0 && !tags.includes('100% Không trùng lịch')) {
     tags.unshift('100% Không trùng lịch');
   }
 
@@ -299,15 +405,20 @@ export function evaluateScheduleScore(
 /**
  * Solves the Constraint Satisfaction Problem (CSP) using Backtracking Search
  * with Minimum Remaining Values (MRV) heuristic, domain pruning, and multi-objective ranking.
- * Guarantees at least 5 valid scheduling options whenever mathematically possible in the catalog.
+ * Guarantees high-quality, diverse scheduling options for both full-day and shift-specific preferences.
  */
 export function solveTimetableCSP(
   catalog: MasterCourseSection[],
   selectedCourseCodes: string[],
-  constraints: ScheduleConstraints,
+  constraintsInput: Partial<ScheduleConstraints> = {},
   maxSolutions = 10
 ): TimetableSolution[] {
   if (selectedCourseCodes.length === 0) return [];
+
+  const constraints: ScheduleConstraints = {
+    ...DEFAULT_SCHEDULE_CONSTRAINTS,
+    ...constraintsInput,
+  };
 
   // 1. Assign consistent colors to courses
   const courseColorMap = new Map<string, string>();
@@ -315,23 +426,92 @@ export function solveTimetableCSP(
     courseColorMap.set(code, COURSE_COLORS[idx % COURSE_COLORS.length]);
   });
 
-  // 2. Generate bundles for each course
+  const shiftPref = constraints.preferredShift || constraints.preferredPeriod || 'all';
+
+  // 2. Generate bundles for each course and pre-sort/interleave bundles according to shift preference
   const rawSubjectBundles: { courseCode: string; bundles: MasterCourseSection[][] }[] = [];
-  for (const code of selectedCourseCodes) {
+  selectedCourseCodes.forEach((code, codeIdx) => {
     const bundles = generateCourseOptionBundles(code, catalog);
     if (bundles.length > 0) {
-      // Colorize sections
       const color = courseColorMap.get(code) || '#3b82f6';
-      const coloredBundles = bundles.map((b) =>
+      let coloredBundles = bundles.map((b) =>
         b.map((s) => ({
           ...s,
           color,
           id: s.id || `sec-${s.classCode}-${s.dayOfWeek}-${s.startPeriod}`
         }))
       );
+
+      // Pre-sort / Interleave bundles so the user's preferred shift is explored effectively by CSP backtracking
+      if (shiftPref === 'afternoon') {
+        coloredBundles.sort((bundleA, bundleB) => {
+          const getAfternoonScore = (bundle: MasterCourseSection[]): number => {
+            let bMorning = 0;
+            let bAfternoon = 0;
+            for (const s of bundle) {
+              if (isVLESection(s)) continue;
+              if (s.startPeriod <= 6) bMorning++;
+              if (s.startPeriod >= 7 || s.endPeriod >= 7) bAfternoon++;
+            }
+            if (bMorning === 0 && bAfternoon > 0) return 100;
+            return bAfternoon * 10 - bMorning * 20;
+          };
+          return getAfternoonScore(bundleB) - getAfternoonScore(bundleA);
+        });
+      } else if (shiftPref === 'morning') {
+        coloredBundles.sort((bundleA, bundleB) => {
+          const getMorningScore = (bundle: MasterCourseSection[]): number => {
+            let bMorning = 0;
+            let bAfternoon = 0;
+            for (const s of bundle) {
+              if (isVLESection(s)) continue;
+              if (s.startPeriod <= 6) bMorning++;
+              if (s.startPeriod >= 7 || s.endPeriod >= 7) bAfternoon++;
+            }
+            if (bAfternoon === 0 && bMorning > 0) return 100;
+            return bMorning * 10 - bAfternoon * 20;
+          };
+          return getMorningScore(bundleB) - getMorningScore(bundleA);
+        });
+      } else {
+        // 'all' / 'flexible': Intelligently interleave Morning and Afternoon bundles across courses
+        // This avoids catalog bias where Lớp 01 (Morning) is always evaluated first for every course
+        const morningBundles: typeof coloredBundles = [];
+        const afternoonBundles: typeof coloredBundles = [];
+        const mixedBundles: typeof coloredBundles = [];
+
+        for (const b of coloredBundles) {
+          let m = 0;
+          let a = 0;
+          for (const s of b) {
+            if (isVLESection(s)) continue;
+            if (s.startPeriod <= 6) m++;
+            if (s.startPeriod >= 7 || s.endPeriod >= 7) a++;
+          }
+          if (m > 0 && a > 0) mixedBundles.push(b);
+          else if (a > 0) afternoonBundles.push(b);
+          else morningBundles.push(b);
+        }
+
+        const interleaved: typeof coloredBundles = [...mixedBundles];
+        const maxLen = Math.max(morningBundles.length, afternoonBundles.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (codeIdx % 2 === 0) {
+            if (i < afternoonBundles.length) interleaved.push(afternoonBundles[i]);
+            if (i < morningBundles.length) interleaved.push(morningBundles[i]);
+          } else {
+            if (i < morningBundles.length) interleaved.push(morningBundles[i]);
+            if (i < afternoonBundles.length) interleaved.push(afternoonBundles[i]);
+          }
+        }
+        if (interleaved.length > 0) {
+          coloredBundles = interleaved;
+        }
+      }
+
       rawSubjectBundles.push({ courseCode: code, bundles: coloredBundles });
     }
-  }
+  });
 
   if (rawSubjectBundles.length === 0) return [];
 
@@ -361,7 +541,7 @@ export function solveTimetableCSP(
   }[] = [];
 
   const seenSignatures = new Set<string>();
-  const MAX_EXPLORED_SOLUTIONS = 500;
+  const MAX_EXPLORED_SOLUTIONS = 3000;
 
   // 4. Backtracking Search with Branch & Bound
   function backtrack(courseIdx: number, currentSections: MasterCourseSection[]) {
@@ -371,7 +551,6 @@ export function solveTimetableCSP(
     if (courseIdx === subjectBundles.length) {
       const evalResult = evaluateScheduleScore(currentSections, constraints);
       if (evalResult.clashCount === 0) {
-        // Create canonical fingerprint to avoid duplicate combinations
         const signature = getScheduleFingerprint(currentSections);
 
         if (!seenSignatures.has(signature)) {
@@ -423,45 +602,81 @@ export function solveTimetableCSP(
     };
 
     // Strategy 1: Top Best Overall Solution
-    if (foundSolutions[0]) addIfDistinct(foundSolutions[0]);
+    if (shiftPref === 'afternoon') {
+      const bestAfternoon = [...foundSolutions].sort((a, b) => {
+        const aAfternoonCount = a.sections.filter((s) => !isVLESection(s) && (s.startPeriod >= 7 || s.endPeriod >= 7)).length;
+        const bAfternoonCount = b.sections.filter((s) => !isVLESection(s) && (s.startPeriod >= 7 || s.endPeriod >= 7)).length;
+        const aMorningCount = a.sections.filter((s) => !isVLESection(s) && s.startPeriod <= 6).length;
+        const bMorningCount = b.sections.filter((s) => !isVLESection(s) && s.startPeriod <= 6).length;
+        return (bAfternoonCount - bMorningCount) - (aAfternoonCount - aMorningCount) || b.score - a.score;
+      });
+      if (bestAfternoon[0]) addIfDistinct(bestAfternoon[0]);
+      if (bestAfternoon[1]) addIfDistinct(bestAfternoon[1]);
+    } else if (shiftPref === 'morning') {
+      const bestMorning = [...foundSolutions].sort((a, b) => {
+        const aMorningCount = a.sections.filter((s) => !isVLESection(s) && s.startPeriod <= 6).length;
+        const bMorningCount = b.sections.filter((s) => !isVLESection(s) && s.startPeriod <= 6).length;
+        const aAfternoonCount = a.sections.filter((s) => !isVLESection(s) && (s.startPeriod >= 7 || s.endPeriod >= 7)).length;
+        const bAfternoonCount = b.sections.filter((s) => !isVLESection(s) && (s.startPeriod >= 7 || s.endPeriod >= 7)).length;
+        return (bMorningCount - aAfternoonCount) - (aMorningCount - bAfternoonCount) || b.score - a.score;
+      });
+      if (bestMorning[0]) addIfDistinct(bestMorning[0]);
+      if (bestMorning[1]) addIfDistinct(bestMorning[1]);
+    } else {
+      // 'all' / 'flexible': Prioritize balanced full-day schedules (both Morning and Afternoon)
+      const fullDaySolutions = foundSolutions.filter((s) => {
+        const hasMorning = s.sections.some((sec) => !isVLESection(sec) && sec.startPeriod <= 6);
+        const hasAfternoon = s.sections.some((sec) => !isVLESection(sec) && (sec.startPeriod >= 7 || sec.endPeriod >= 7));
+        return hasMorning && hasAfternoon;
+      });
 
-    // Strategy 2: Most Compact Schedule (minimum active days / fewest campus trips)
+      if (fullDaySolutions.length > 0) {
+        // 1. Top balanced full-day schedule
+        fullDaySolutions.sort((a, b) => b.score - a.score);
+        addIfDistinct(fullDaySolutions[0]);
+
+        // 2. Most compact full-day schedule (combines morning & afternoon to reduce total days)
+        const compactFullDay = [...fullDaySolutions].sort(
+          (a, b) => a.activeDays.length - b.activeDays.length || b.score - a.score
+        );
+        if (compactFullDay[0]) addIfDistinct(compactFullDay[0]);
+
+        // 3. Second best full-day alternative
+        if (fullDaySolutions[1]) addIfDistinct(fullDaySolutions[1]);
+        if (fullDaySolutions[2]) addIfDistinct(fullDaySolutions[2]);
+      } else {
+        // If no mixed full-day solution exists in data, pick best overall
+        if (foundSolutions[0]) addIfDistinct(foundSolutions[0]);
+      }
+    }
+
+    // Strategy 3: Most Compact Schedule overall (minimum active days)
     const mostCompact = [...foundSolutions].sort((a, b) => a.activeDays.length - b.activeDays.length || b.score - a.score);
     if (mostCompact[0]) addIfDistinct(mostCompact[0]);
 
-    if (constraints.preferredPeriod === 'all') {
-      // Strategy 3: Best Balanced / Day-Sharing Schedule (has both morning and afternoon classes)
-      const bestBalanced = [...foundSolutions].sort((a, b) => {
-        const aHasBoth = (a.sections.some(s => s.startPeriod <= 6) && a.sections.some(s => s.startPeriod >= 7)) ? 1 : 0;
-        const bHasBoth = (b.sections.some(s => s.startPeriod <= 6) && b.sections.some(s => s.startPeriod >= 7)) ? 1 : 0;
-        return bHasBoth - aHasBoth || b.score - a.score;
+    // Strategy 4: If avoidSplitDays requested, prioritize schedules with minimum split days
+    if (constraints.avoidSplitDays) {
+      const bestNoSplit = [...foundSolutions].sort((a, b) => {
+        const aSplit = a.activeDays.filter((day) =>
+          a.sections.some((s) => !isVLESection(s) && Number(s.dayOfWeek) === day && s.startPeriod <= 6) &&
+          a.sections.some((s) => !isVLESection(s) && Number(s.dayOfWeek) === day && (s.startPeriod >= 7 || s.endPeriod >= 7))
+        ).length;
+        const bSplit = b.activeDays.filter((day) =>
+          b.sections.some((s) => !isVLESection(s) && Number(s.dayOfWeek) === day && s.startPeriod <= 6) &&
+          b.sections.some((s) => !isVLESection(s) && Number(s.dayOfWeek) === day && (s.startPeriod >= 7 || s.endPeriod >= 7))
+        ).length;
+        return aSplit - bSplit || b.score - a.score;
       });
-      if (bestBalanced[0]) addIfDistinct(bestBalanced[0]);
-    } else {
-      // Strategy 3: Best Morning-friendly Schedule (least early 7am, most morning focus)
-      const bestMorning = [...foundSolutions].sort((a, b) => {
-        const aMorningCount = a.sections.filter((s) => s.startPeriod <= 6).length;
-        const bMorningCount = b.sections.filter((s) => s.startPeriod <= 6).length;
-        return bMorningCount - aMorningCount || b.score - a.score;
-      });
-      if (bestMorning[0]) addIfDistinct(bestMorning[0]);
-
-      // Strategy 4: Best Afternoon/Late-friendly Schedule
-      const bestAfternoon = [...foundSolutions].sort((a, b) => {
-        const aAfternoonCount = a.sections.filter((s) => s.startPeriod >= 7).length;
-        const bAfternoonCount = b.sections.filter((s) => s.startPeriod >= 7).length;
-        return bAfternoonCount - aAfternoonCount || b.score - a.score;
-      });
-      if (bestAfternoon[0]) addIfDistinct(bestAfternoon[0]);
+      if (bestNoSplit[0]) addIfDistinct(bestNoSplit[0]);
     }
 
-    // Fill remaining distinct slots up to maxSolutions (max 7) from the highest-ranked solutions
+    // Fill remaining distinct slots up to maxSolutions from the highest-ranked solutions
     for (const sol of foundSolutions) {
       if (chosenSolutions.length >= maxSolutions) break;
       addIfDistinct(sol);
     }
 
-    // Map to final TimetableSolution interface (strictly only distinct solutions found)
+    // Map to final TimetableSolution interface
     return chosenSolutions.map((sol, index) => {
       const dayNames = sol.activeDays.map((d) => (d === 8 ? 'CN' : `T${d}`)).join(', ');
       const title = `Phương án ${index + 1}`;
@@ -480,7 +695,7 @@ export function solveTimetableCSP(
     });
   }
 
-  // 6. Fallback: If no 100% clash-free solution exists, return the best combination with minimal clashes so the student can edit manually
+  // 6. Fallback: If no 100% clash-free solution exists, return the best combination with minimal clashes
   const greedySections: MasterCourseSection[] = [];
   for (const item of subjectBundles) {
     if (item.bundles.length > 0) {
@@ -503,3 +718,8 @@ export function solveTimetableCSP(
     }
   ];
 }
+
+/**
+ * Backward compatibility alias for solveTimetableCSP
+ */
+export const solveSchedule = solveTimetableCSP;

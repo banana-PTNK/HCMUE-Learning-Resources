@@ -95,6 +95,7 @@ export interface MasterCourseSection {
   weeks?: string;
   color?: string;
   sourceFile?: string; // Tên tệp nguồn đã tải lên (ví dụ: "tkb_hk2.xlsx")
+  isOnline?: boolean;  // Phiên học trực tuyến (VLE / Online)
 }
 
 export interface ScheduleConstraints {
@@ -104,7 +105,9 @@ export interface ScheduleConstraints {
   avoidLateAfternoon: boolean; // Tránh tiết 10-12
   freeFridayAfternoon: boolean; // Trống chiều Thứ 6
   compactDays: boolean; // Gom lịch học vào ít ngày nhất
-  preferredPeriod: 'all' | 'morning' | 'afternoon'; // Ưu tiên ca học
+  preferredShift?: 'all' | 'morning' | 'afternoon' | 'flexible'; // Ưu tiên ca học: all/flexible (cả ngày Sáng+Chiều), morning (chỉ sáng), afternoon (chỉ chiều)
+  preferredPeriod?: 'all' | 'morning' | 'afternoon' | 'flexible'; // Backwards-compatible alias
+  avoidSplitDays?: boolean; // Hạn chế học cả sáng lẫn chiều trong cùng 1 ngày (tối ưu hóa mềm)
   preferredLecturers?: { [courseCode: string]: string };
 }
 
