@@ -94,7 +94,7 @@ export const getGoogleForm = async (
     throw new Error(errorData?.error?.message || 'Không thể lấy thông tin biểu mẫu Google Forms');
   }
 
-  return await res.json();
+  return await res.json().catch(() => ({}));
 };
 
 /**
@@ -115,7 +115,7 @@ export const getGoogleFormResponses = async (
     throw new Error(errorData?.error?.message || 'Không thể lấy danh sách câu trả lời Google Forms');
   }
 
-  return await res.json();
+  return await res.json().catch(() => ({}));
 };
 
 /**
@@ -147,7 +147,7 @@ export const createGoogleFormWithQuestions = async (
     throw new Error(errorData?.error?.message || 'Không thể tạo biểu mẫu Google Forms mới');
   }
 
-  const form: GoogleFormDetails = await createRes.json();
+  const form: GoogleFormDetails = await createRes.json().catch(() => ({} as any));
   const formId = form.formId;
 
   // Step 2: If description or questions exist, batchUpdate form

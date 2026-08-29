@@ -102,7 +102,7 @@ export const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose })
               Đã gửi phản hồi thành công!
             </h4>
             <p className="text-xs text-slate-400 max-w-xs mx-auto">
-              Cảm ơn đóng góp của bạn giúp Ban Quản trị hoàn thiện hệ thống tốt hơn mỗi ngày.
+              Cảm ơn đóng góp của bạn giúp Admin hoàn thiện hệ thống tốt hơn mỗi ngày.
             </p>
           </div>
         ) : (

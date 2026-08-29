@@ -19,6 +19,7 @@ import { GoogleSheetProvider } from './context/GoogleSheetContext';
 import { ScheduleProvider } from './context/ScheduleContext';
 import { SubjectCategory } from './types';
 import { initAppTheme, toggleAppTheme } from './utils/theme';
+import { syncOfflineSubmissions } from './services/contributionService';
 
 function getNormalizedCurrentPath(): string {
   if (typeof window === 'undefined') return '/';
@@ -87,6 +88,34 @@ function AppContent() {
   useEffect(() => {
     initAppTheme();
   }, []);
+
+  // Offline-First Resilient Background Sync Queue
+  useEffect(() => {
+    const triggerSync = async () => {
+      try {
+        const syncedCount = await syncOfflineSubmissions();
+        if (syncedCount > 0) {
+          toast.success(
+            'Đồng bộ ngoại tuyến thành công!',
+            `Đã tự động gửi ${syncedCount} tài liệu đóng góp được lưu trữ ngoại tuyến lên hệ thống.`
+          );
+        }
+      } catch (err) {
+        console.warn('Background offline sync error:', err);
+      }
+    };
+
+    // Run once on mount / initial connection detection
+    if (navigator.onLine) {
+      triggerSync();
+    }
+
+    // Add event listeners for network changes
+    window.addEventListener('online', triggerSync);
+    return () => {
+      window.removeEventListener('online', triggerSync);
+    };
+  }, [toast]);
 
   // Sync with browser back/forward and hash navigation
   useEffect(() => {

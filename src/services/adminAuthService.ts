@@ -68,7 +68,13 @@ export class AdminAuthService {
         body: JSON.stringify({ password: password.trim() }),
       });
 
-      const data = await response.json();
+      let data: any = {};
+      try {
+        const rawText = await response.text();
+        if (rawText && !rawText.trim().startsWith('<')) {
+          data = JSON.parse(rawText);
+        }
+      } catch {}
 
       if (response.ok && data.success && data.token) {
         // Save ephemeral token and expiration timestamp
@@ -123,10 +129,15 @@ export class AdminAuthService {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        if (data.valid) {
-          return true;
-        }
+        try {
+          const rawText = await response.text();
+          if (rawText && !rawText.trim().startsWith('<')) {
+            const data = JSON.parse(rawText);
+            if (data.valid) {
+              return true;
+            }
+          }
+        } catch {}
       }
       this.clearSession();
       return false;

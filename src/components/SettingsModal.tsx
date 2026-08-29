@@ -16,8 +16,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   useEffect(() => {
     if (isOpen) {
       fetch('/api/health')
-        .then(res => res.json())
-        .then(data => setHasApiKey(data.hasGeminiKey))
+        .then(res => (res.ok ? res.json().catch(() => null) : null))
+        .then(data => setHasApiKey(data?.hasGeminiKey ?? false))
         .catch(() => setHasApiKey(false));
     }
   }, [isOpen]);

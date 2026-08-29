@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Upload,
   FileSpreadsheet,
@@ -17,10 +17,8 @@ import {
   Trash2,
   Square
 } from 'lucide-react';
-import confetti from 'canvas-confetti';
 import { MasterCourseSection, BatchFileItem } from '../types';
-import { detectFileType, formatFileSize } from '../utils/scheduleParser';
-import { TkbParallelQueue, QueueMetrics } from '../utils/tkbParallelQueue';
+import { formatFileSize } from '../utils/scheduleParser';
 import { useSchedule } from '../context/ScheduleContext';
 
 interface BatchScheduleUploaderProps {
@@ -41,11 +39,9 @@ interface BatchScheduleUploaderProps {
 }
 
 export const BatchScheduleUploader: React.FC<BatchScheduleUploaderProps> = ({
-  onBatchComplete,
   activeSourceFiles,
   masterCatalogCount,
   uniqueCoursesCount,
-  onResetSample,
   onOpenRawInputModal,
   onProceedToStep2,
   selectedCourseCodesCount,
@@ -53,26 +49,22 @@ export const BatchScheduleUploader: React.FC<BatchScheduleUploaderProps> = ({
   onClearAllFiles
 }) => {
   const {
-    masterCatalog,
     fileQueue,
-    setFileQueue,
     isProcessing,
-    setIsProcessing,
     overallProgress,
-    setOverallProgress,
-    currentProcessingIdx,
-    setCurrentProcessingIdx,
     batchStats,
-    setBatchStats,
     batchMode,
-    setBatchMode
+    setBatchMode,
+    queueMetrics,
+    addFilesToQueue,
+    retryFailedItems,
+    cancelQueue,
+    removeQueueItem,
+    clearQueue
   } = useSchedule();
 
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
-  const [queueMetrics, setQueueMetrics] = useState<QueueMetrics | null>(null);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const parallelQueueRef = useRef<TkbParallelQueue | null>(null);
 
   // Helper to get corresponding icon for file type
   const renderFileIcon = (type: BatchFileItem['type']) => {
@@ -91,173 +83,25 @@ export const BatchScheduleUploader: React.FC<BatchScheduleUploaderProps> = ({
     }
   };
 
-  // Initialize or get parallel queue with optimal concurrency
-  const getOrCreateQueue = useCallback(() => {
-    if (!parallelQueueRef.current) {
-      parallelQueueRef.current = new TkbParallelQueue({ concurrency: 4 });
-    }
-    return parallelQueueRef.current;
-  }, []);
-
-  // Launch incremental parallel batch processing
-  const startParallelProcessing = useCallback(
-    async (itemsToProcess: BatchFileItem[]) => {
-      // Find pending items
-      const pendingItems = itemsToProcess.filter((i) => i.status === 'queued' || i.status === 'error');
-      if (pendingItems.length === 0) return;
-
-      setIsProcessing(true);
-      setOverallProgress(0);
-
-      const queue = getOrCreateQueue();
-
-      queue.setCallbacks({
-        onItemProgress: (id, progress, message, status) => {
-          setFileQueue((prev) =>
-            prev.map((it) =>
-              it.id === id
-                ? {
-                    ...it,
-                    progress,
-                    message,
-                    status: status || it.status
-                  }
-                : it
-            )
-          );
-        },
-        onItemComplete: (id, sections) => {
-          setFileQueue((prev) =>
-            prev.map((it) =>
-              it.id === id
-                ? {
-                    ...it,
-                    status: 'done',
-                    progress: 100,
-                    extractedCount: sections.length,
-                    message: `✓ Đã trích xuất ${sections.length} lớp học phần`
-                  }
-                : it
-            )
-          );
-        },
-        onItemError: (id, error) => {
-          setFileQueue((prev) =>
-            prev.map((it) =>
-              it.id === id
-                ? {
-                    ...it,
-                    status: 'error',
-                    progress: 100,
-                    extractedCount: 0,
-                    error,
-                    message: '⚠️ ' + error
-                  }
-                : it
-            )
-          );
-        },
-        onMetricsUpdate: (metrics) => {
-          setQueueMetrics(metrics);
-          setOverallProgress(metrics.overallProgress);
-        },
-        onQueueComplete: ({ sections, successFiles, metrics }) => {
-          setIsProcessing(false);
-          setOverallProgress(100);
-          setBatchStats({
-            totalExtracted: sections.length,
-            successFiles: metrics.completedFiles,
-            failedFiles: metrics.failedFiles
-          });
-
-          if (sections.length > 0) {
-            onBatchComplete(sections, successFiles, batchMode);
-            confetti({
-              particleCount: 60,
-              spread: 60,
-              origin: { y: 0.6 }
-            });
-          }
-        }
-      });
-
-      const existingSections = batchMode === 'merge' ? masterCatalog : [];
-      await queue.addAndStart(itemsToProcess, existingSections);
-    },
-    [batchMode, getOrCreateQueue, masterCatalog, onBatchComplete, setBatchStats, setFileQueue, setIsProcessing, setOverallProgress]
-  );
-
   // Handle incoming files from input or dropzone (incremental only)
   const handleAddFiles = (files: FileList | File[]) => {
-    const fileArray = Array.from(files);
-    if (fileArray.length === 0) return;
-
-    const newItems: BatchFileItem[] = fileArray.map((f, idx) => ({
-      id: `batch_file_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 7)}`,
-      name: f.name,
-      size: f.size,
-      type: detectFileType(f),
-      status: 'queued',
-      progress: 0,
-      message: 'Đang xếp hàng chờ xử lý...',
-      extractedCount: 0,
-      file: f
-    }));
-
-    const updatedQueue = [...fileQueue, ...newItems];
-    setFileQueue(updatedQueue);
-    startParallelProcessing(updatedQueue);
+    addFilesToQueue(files);
   };
 
   // Remove or cancel an individual item
   const handleRemoveQueueItem = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (isProcessing && parallelQueueRef.current) {
-      parallelQueueRef.current.cancelItem(id);
-    }
     const target = fileQueue.find((item) => item.id === id);
-    if (target) {
-      if (target.status === 'done') {
-        onRemoveFile?.(target.name);
-      }
-      setFileQueue((prev) => prev.filter((item) => item.id !== id));
+    if (target && target.status === 'done') {
+      onRemoveFile?.(target.name);
     }
+    removeQueueItem(id);
   };
 
   // Clear entire queue
   const handleClearQueue = () => {
-    if (isProcessing && parallelQueueRef.current) {
-      parallelQueueRef.current.cancelAll();
-    }
-    setIsProcessing(false);
-    setFileQueue([]);
-    setBatchStats(null);
-    setOverallProgress(0);
-    setQueueMetrics(null);
+    clearQueue();
     onClearAllFiles?.();
-  };
-
-  // Cancel running queue
-  const handleCancelProcessing = () => {
-    if (parallelQueueRef.current) {
-      parallelQueueRef.current.cancelAll();
-    }
-    setIsProcessing(false);
-  };
-
-  // Retry failed files
-  const handleRetryFailed = () => {
-    if (isProcessing) return;
-    const failedItems = fileQueue.filter((item) => item.status === 'error');
-    if (failedItems.length === 0) return;
-
-    const resetQueue = fileQueue.map((item) =>
-      item.status === 'error'
-        ? { ...item, status: 'queued' as const, progress: 0, message: 'Đang xếp hàng thử lại...' }
-        : item
-    );
-    setFileQueue(resetQueue);
-    startParallelProcessing(resetQueue);
   };
 
   // Drag & drop handlers
@@ -287,15 +131,6 @@ export const BatchScheduleUploader: React.FC<BatchScheduleUploaderProps> = ({
       handleAddFiles(e.dataTransfer.files);
     }
   };
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (parallelQueueRef.current) {
-        parallelQueueRef.current.cancelAll();
-      }
-    };
-  }, []);
 
   return (
     <div className="space-y-4">
@@ -397,7 +232,10 @@ export const BatchScheduleUploader: React.FC<BatchScheduleUploaderProps> = ({
               <span>Kéo thả hoặc Bấm để tải lên tệp TKB</span>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Hỗ trợ <strong>Excel (.xlsx, .xls, .csv)</strong>, <strong>PDF Thời khóa biểu</strong>, <strong>Ảnh chụp màn hình</strong>, và <strong>Văn bản</strong>. Tự động bóc tách nhanh chóng và chính xác.
+              Hỗ trợ <strong>Excel (.xlsx, .xls, .csv)</strong>, <strong>PDF Thời khóa biểu</strong>, <strong>Ảnh chụp màn hình</strong>, và <strong>Văn bản</strong>. Tự động bóc tách nhanh chóng.
+            </p>
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/40 py-1 px-2.5 rounded-lg inline-block border border-emerald-200 dark:border-emerald-800">
+              💡 Khuyên dùng: Tải lên tệp Excel (.xlsx) để xử lý nhanh dưới 0.1s và đạt độ chính xác 100%
             </p>
           </div>
         </div>
@@ -540,7 +378,7 @@ export const BatchScheduleUploader: React.FC<BatchScheduleUploaderProps> = ({
 
                   <div className="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5">
                     {isProcessing
-                      ? 'Đang tự động bóc tách các môn học và lớp học phần...'
+                      ? 'Đang tự động bóc tách các môn học và lớp học phần trong nền...'
                       : `Tổng cộng: ${batchStats?.totalExtracted ?? masterCatalogCount} lớp học phần hợp lệ.`}
                   </div>
                 </div>
@@ -552,7 +390,7 @@ export const BatchScheduleUploader: React.FC<BatchScheduleUploaderProps> = ({
               {isProcessing ? (
                 <button
                   type="button"
-                  onClick={handleCancelProcessing}
+                  onClick={cancelQueue}
                   className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800 text-xs font-semibold cursor-pointer transition-colors flex items-center gap-1.5"
                   title="Dừng xử lý"
                 >
@@ -594,7 +432,7 @@ export const BatchScheduleUploader: React.FC<BatchScheduleUploaderProps> = ({
               {fileQueue.some((i) => i.status === 'error') && !isProcessing && (
                 <button
                   type="button"
-                  onClick={handleRetryFailed}
+                  onClick={retryFailedItems}
                   className="text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 font-semibold normal-case cursor-pointer"
                 >
                   <RefreshCw className="w-3 h-3" />

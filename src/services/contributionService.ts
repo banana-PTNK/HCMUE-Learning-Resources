@@ -8,7 +8,9 @@ import {
   deleteDoc,
   serverTimestamp,
   query,
-  limit
+  limit,
+  orderBy,
+  where
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { Contributor } from '../types';
@@ -151,12 +153,21 @@ export async function registerOrUpdateContributorInLeaderboard(
     updatedList.unshift(updatedContributor);
   }
 
+  // Sort and re-rank leaderboard dynamically based on total filesCount
+  updatedList.sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+  updatedList = updatedList.map((item, idx) => ({
+    ...item,
+    rank: idx + 1
+  }));
+
   // Update in-memory & broadcast event (Always persists across renders and storage)
   setMemoryContributors(updatedList);
 
   // Sync to Firestore 'contributors' collection using MSSV as primary doc ID
   try {
-    const docId = updatedContributor.studentId || updatedContributor.id;
+    const docId = updatedContributor.studentId
+      ? normalizeStudentId(updatedContributor.studentId)
+      : updatedContributor.id;
     const contributorRef = doc(db, CONTRIBUTORS_COLLECTION, docId);
     await setDoc(contributorRef, {
       ...updatedContributor,
@@ -182,6 +193,73 @@ export async function submitContributionToFirestore(
   const normalizedDriveUrl = (payload.driveUrl || '').trim();
   const filesCount = Math.max(1, Math.round(Number(payload.filesCount) || 1));
   const fallbackId = `sub_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  let contributorName = normalizedName;
+  let className = normalizedClass;
+
+function cleanUndefined(obj: any): any {
+  if (!obj || typeof obj !== 'object') return obj;
+  const cleaned: any = {};
+  Object.keys(obj).forEach((key) => {
+    const val = obj[key];
+    if (val !== undefined) {
+      cleaned[key] = val;
+    }
+  });
+  return cleaned;
+}
+
+  if (normalizedStudentId) {
+    // 1. Try to search locally first (instant)
+    const localContributors = getStoredContributors();
+    const matched = localContributors.find(
+      (c) => c.studentId && isSameStudentId(c.studentId, normalizedStudentId)
+    );
+    if (matched) {
+      if (matched.name) contributorName = matched.name.trim();
+      if (matched.className) className = matched.className.trim();
+    } else {
+      const localSubmissions = getLocalCachedSubmissions();
+      const matchedSub = localSubmissions.find(
+        (s) => s.studentId && isSameStudentId(s.studentId, normalizedStudentId)
+      );
+      if (matchedSub) {
+        if (matchedSub.contributorName) contributorName = matchedSub.contributorName.trim();
+        if (matchedSub.className) className = matchedSub.className.trim();
+      } else {
+        // 2. Query Firestore in parallel
+        try {
+          const q1 = query(
+            collection(db, CONTRIBUTIONS_COLLECTION),
+            where('studentId', '==', normalizedStudentId),
+            orderBy('createdAt', 'asc'),
+            limit(1)
+          );
+          const q2 = query(
+            collection(db, 'contributors'),
+            where('studentId', '==', normalizedStudentId),
+            limit(1)
+          );
+          
+          const [snap1, snap2] = await Promise.all([
+            getDocs(q1),
+            getDocs(q2)
+          ]);
+          
+          if (!snap1.empty) {
+            const firstEntry = snap1.docs[0].data();
+            if (firstEntry.contributorName) contributorName = String(firstEntry.contributorName).trim();
+            if (firstEntry.className) className = String(firstEntry.className).trim();
+          } else if (!snap2.empty) {
+            const contr = snap2.docs[0].data();
+            if (contr.name) contributorName = String(contr.name).trim();
+            if (contr.className) className = String(contr.className).trim();
+          }
+        } catch (err) {
+          console.warn('Failed to query previous studentId info in parallel:', err);
+        }
+      }
+    }
+  }
 
   const docData: FirestoreContribution = {
     id: fallbackId,
@@ -190,33 +268,42 @@ export async function submitContributionToFirestore(
     assetType: payload.assetType,
     driveUrl: normalizedDriveUrl,
     filesCount,
-    contributorName: normalizedName,
+    contributorName,
     studentId: normalizedStudentId,
-    className: normalizedClass,
+    className,
     email: normalizedEmail,
     notes: (payload.notes || '').trim(),
     status: 'pending',
     createdAt: new Date().toISOString()
   };
 
-  let createdId = fallbackId;
-
-  // 1. Try to add directly to Firestore
+  // 2. Perform Firestore write and await it
   try {
+    const cleanData = cleanUndefined(docData);
+    delete cleanData.id; // Let Firestore assign the document ID
     const docRef = await addDoc(collection(db, CONTRIBUTIONS_COLLECTION), {
-      ...docData,
+      ...cleanData,
       createdAt: serverTimestamp()
     });
-    createdId = docRef.id;
-    docData.id = createdId;
-  } catch (firestoreErr) {
-    console.warn('Direct Firestore addDoc error (falling back to local cache):', firestoreErr);
+    const updatedSub = { ...docData, id: docRef.id };
+    saveLocalCachedSubmission(updatedSub);
+    return { success: true, id: docRef.id };
+  } catch (err: any) {
+    console.error('Firestore addDoc error:', err);
+    throw new Error(err?.message || 'Không thể gửi tài liệu lên hệ thống.');
   }
+}
 
-  // 2. Save to local submissions cache so Admin sees it immediately in real-time
-  saveLocalCachedSubmission(docData);
-
-  return { success: true, id: createdId };
+export function getTimestampMs(val: any): number {
+  if (!val) return 0;
+  if (typeof val.toDate === 'function') {
+    return val.toDate().getTime();
+  }
+  if (val.seconds !== undefined) {
+    return val.seconds * 1000 + Math.floor((val.nanoseconds || 0) / 1000000);
+  }
+  const t = new Date(val).getTime();
+  return isNaN(t) ? 0 : t;
 }
 
 /**
@@ -227,7 +314,8 @@ export async function fetchAllContributions(): Promise<FirestoreContribution[]> 
   const firestoreResults: FirestoreContribution[] = [];
 
   try {
-    const snapshot = await getDocs(collection(db, CONTRIBUTIONS_COLLECTION));
+    const q = query(collection(db, CONTRIBUTIONS_COLLECTION), orderBy('createdAt', 'desc'), limit(150));
+    const snapshot = await getDocs(q);
     snapshot.forEach((docSnap) => {
       const data = docSnap.data();
       firestoreResults.push({
@@ -256,14 +344,24 @@ export async function fetchAllContributions(): Promise<FirestoreContribution[]> 
   // Merge with local cached submissions
   const localList = getLocalCachedSubmissions();
   const mergedMap = new Map<string, FirestoreContribution>();
+  const seenDriveUrls = new Set<string>();
 
   // Add firestore items first
   firestoreResults.forEach((item) => {
     mergedMap.set(item.id, item);
+    if (item.driveUrl) {
+      seenDriveUrls.add(item.driveUrl.trim().toLowerCase());
+    }
   });
 
-  // Merge local items if not already present
+  // Merge local items if not already present and not matching any Firestore item by driveUrl
   localList.forEach((item: any) => {
+    const cleanUrl = (item.driveUrl || '').trim().toLowerCase();
+    if (cleanUrl && seenDriveUrls.has(cleanUrl)) {
+      // Clean up from local storage since it's already in Firestore
+      deleteLocalCachedSubmission(item.id);
+      return;
+    }
     if (!mergedMap.has(item.id)) {
       mergedMap.set(item.id, item);
     }
@@ -273,9 +371,7 @@ export async function fetchAllContributions(): Promise<FirestoreContribution[]> 
 
   // Sort newest first
   return finalResults.sort((a, b) => {
-    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return timeB - timeA;
+    return getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt);
   });
 }
 
@@ -323,11 +419,8 @@ export async function approveContribution(
   const contributionId = contribution.id;
   const finalFilesCount = customFilesCount !== undefined ? Math.max(1, customFilesCount) : (contribution.filesCount || 1);
 
-  // Update local cache
-  updateLocalCachedSubmissionStatus(contributionId, 'approved');
-  if (customFilesCount !== undefined) {
-    updateLocalCachedSubmissionFilesCount(contributionId, finalFilesCount);
-  }
+  // Remove from local cache so it disappears immediately
+  deleteLocalCachedSubmission(contributionId);
 
   // Update Firestore
   try {
@@ -376,28 +469,31 @@ export async function updateContributorRecord(
   }
 
   let updated: Contributor;
-  const updatedList = [...currentContributors];
+  let updatedList = [...currentContributors];
 
   if (index >= 0) {
     const existing = currentContributors[index];
+    const newFilesCount = updates.filesCount !== undefined ? Math.max(0, Number(updates.filesCount) || 0) : existing.filesCount;
     updated = {
       ...existing,
       ...updates,
-      filesCount: updates.filesCount !== undefined ? Math.max(0, Number(updates.filesCount) || 0) : existing.filesCount,
+      filesCount: newFilesCount,
       entriesCount: updates.entriesCount !== undefined ? Math.max(0, Number(updates.entriesCount) || 0) : existing.entriesCount,
+      badgeTitle: updates.badgeTitle !== undefined ? updates.badgeTitle : (updates.filesCount !== undefined ? getRankLevel(newFilesCount).rank : existing.badgeTitle)
     };
     updatedList[index] = updated;
   } else {
     // Upsert as new entry if not existing in current list
+    const filesCount = Math.max(0, Number(updates.filesCount) || 1);
     updated = {
       id: studentIdOrId || `contrib-${Date.now()}`,
       rank: updates.rank || (currentContributors.length + 1),
       name: updates.name || 'Sinh viên đóng góp',
       studentId: updates.studentId || (normalizedKey.includes('.') ? normalizedKey : ''),
       className: updates.className || '',
-      filesCount: Math.max(0, Number(updates.filesCount) || 1),
+      filesCount,
       entriesCount: Math.max(1, Number(updates.entriesCount) || 1),
-      badgeTitle: updates.badgeTitle || 'Đóng góp viên Tích cực',
+      badgeTitle: updates.badgeTitle || getRankLevel(filesCount).rank,
       specialty: updates.specialty || 'Học liệu CNTT',
       email: updates.email || '',
       ...updates
@@ -405,11 +501,20 @@ export async function updateContributorRecord(
     updatedList.unshift(updated);
   }
 
+  // Sort and re-rank leaderboard dynamically based on total filesCount
+  updatedList.sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+  updatedList = updatedList.map((item, idx) => ({
+    ...item,
+    rank: idx + 1
+  }));
+
   setMemoryContributors(updatedList);
 
   // Sync to Firestore
   try {
-    const docId = (updated.studentId && updated.studentId.trim()) ? updated.studentId.trim() : (updated.id || `contrib-${Date.now()}`);
+    const docId = (updated.studentId && updated.studentId.trim())
+      ? normalizeStudentId(updated.studentId)
+      : (updated.id || `contrib-${Date.now()}`);
     const contributorRef = doc(db, CONTRIBUTORS_COLLECTION, docId);
     await setDoc(contributorRef, {
       ...updated,
@@ -504,15 +609,28 @@ export async function deleteContributorFromLeaderboard(studentIdOrId: string): P
   const currentContributors = getStoredContributors();
   const normalizedKey = (studentIdOrId || '').trim();
 
-  const filtered = currentContributors.filter(
+  let filtered = currentContributors.filter(
     (c) => !(c.studentId && isSameStudentId(c.studentId, normalizedKey)) && c.id !== studentIdOrId
   );
+
+  // Sort and re-rank leaderboard dynamically based on total filesCount after deletion
+  filtered.sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+  filtered = filtered.map((item, idx) => ({
+    ...item,
+    rank: idx + 1
+  }));
 
   setMemoryContributors(filtered);
 
   try {
-    const docRef = doc(db, CONTRIBUTORS_COLLECTION, studentIdOrId);
-    await deleteDoc(docRef);
+    const cleanId = (studentIdOrId || '').trim();
+    if (cleanId) {
+      const docId = cleanId.includes('.') || cleanId.length === 10
+        ? normalizeStudentId(cleanId)
+        : cleanId;
+      const docRef = doc(db, CONTRIBUTORS_COLLECTION, docId);
+      await deleteDoc(docRef);
+    }
   } catch (err) {
     console.warn('Firestore deleteContributorFromLeaderboard warning:', err);
   }
@@ -536,8 +654,8 @@ export async function rejectContribution(
   contributionId: string,
   reason: string = 'Xin lỗi vì tài liệu không phù hợp hoặc tài liệu đã được xuất hiện trước đó.'
 ): Promise<void> {
-  // Update local cache
-  updateLocalCachedSubmissionStatus(contributionId, 'rejected', reason);
+  // Remove from local cache so it disappears immediately
+  deleteLocalCachedSubmission(contributionId);
 
   // Update Firestore
   try {
@@ -589,27 +707,138 @@ export async function searchContributionsByStudent(query: string): Promise<Fires
   });
 }
 
-const SWR_CONTRIBUTORS_CACHE_KEY = 'hcmue_swr_contributors_cache_v1';
+import { onSnapshot } from 'firebase/firestore';
 
-export function getCachedContributors(): Contributor[] {
-  try {
-    const raw = localStorage.getItem(SWR_CONTRIBUTORS_CACHE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    }
-  } catch {}
-  return getStoredContributors();
+/**
+ * Subscribe to Hall of Fame Contributors from Firestore in real-time (no localStorage).
+ */
+export function subscribeToContributors(
+  callback: (contributors: Contributor[]) => void,
+  maxLimit = 100
+): () => void {
+  const q = query(
+    collection(db, CONTRIBUTORS_COLLECTION),
+    orderBy('filesCount', 'desc'),
+    limit(maxLimit)
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    const list: Contributor[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as Contributor;
+      list.push({ ...data, id: docSnap.id });
+    });
+
+    // Merge with existing base contributors to ensure no entries are lost
+    const baseContributors = getStoredContributors();
+    const map = new Map<string, Contributor>();
+    baseContributors.forEach(c => {
+      const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
+      map.set(key, c);
+    });
+    list.forEach(c => {
+      const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
+      map.set(key, c);
+    });
+    const mergedList = Array.from(map.values())
+      .sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+    
+    // Dynamic ranking mapping
+    const rankedList = mergedList.map((item, idx) => ({
+      ...item,
+      rank: idx + 1
+    }));
+    setMemoryContributors(rankedList);
+    callback(rankedList);
+  }, (err) => {
+    console.warn('Real-time contributors subscription error:', err);
+  });
 }
 
 /**
- * Fetch verified Hall of Fame Contributors from durable Firestore with SWR cache and limit.
+ * Subscribe to all contributions in real-time from Firestore (no localStorage).
+ */
+export function subscribeToContributions(
+  callback: (contributions: FirestoreContribution[]) => void,
+  maxLimit = 150
+): () => void {
+  const q = query(
+    collection(db, CONTRIBUTIONS_COLLECTION),
+    orderBy('createdAt', 'desc'),
+    limit(maxLimit)
+  );
+
+  return onSnapshot(q, (snapshot) => {
+    const firestoreResults: FirestoreContribution[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      firestoreResults.push({
+        id: docSnap.id,
+        targetSubjectCode: data.targetSubjectCode || '',
+        customSubjectName: data.customSubjectName || undefined,
+        assetType: data.assetType || '',
+        driveUrl: data.driveUrl || '',
+        filesCount: data.filesCount || 1,
+        contributorName: data.contributorName || '',
+        studentId: data.studentId || '',
+        className: data.className || '',
+        email: data.email || '',
+        notes: data.notes || '',
+        status: data.status || 'pending',
+        createdAt: data.createdAt,
+        approvedAt: data.approvedAt,
+        approvedBy: data.approvedBy,
+        adminFeedback: data.adminFeedback
+      });
+    });
+
+    // Merge with in-memory local cached submissions
+    const localList = getLocalCachedSubmissions();
+    const mergedMap = new Map<string, FirestoreContribution>();
+    const seenDriveUrls = new Set<string>();
+
+    // Add firestore items first
+    firestoreResults.forEach((item) => {
+      mergedMap.set(item.id, item);
+      if (item.driveUrl) {
+        seenDriveUrls.add(item.driveUrl.trim().toLowerCase());
+      }
+    });
+
+    // Merge local items if not already present and not matching any Firestore item by driveUrl
+    localList.forEach((item: any) => {
+      const cleanUrl = (item.driveUrl || '').trim().toLowerCase();
+      if (cleanUrl && seenDriveUrls.has(cleanUrl)) {
+        // Clean up from local storage/memory since it's already in Firestore
+        deleteLocalCachedSubmission(item.id);
+        return;
+      }
+      if (!mergedMap.has(item.id)) {
+        mergedMap.set(item.id, item);
+      }
+    });
+
+    const finalResults = Array.from(mergedMap.values());
+    const sorted = finalResults.sort((a, b) => {
+      return getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt);
+    });
+
+    callback(sorted);
+  }, (err) => {
+    console.warn('Real-time contributions subscription error:', err);
+  });
+}
+
+/**
+ * Fetch verified Hall of Fame Contributors from durable Firestore with SWR cache and limit (no localStorage).
  */
 export async function fetchContributorsFromFirestore(maxLimit = 100): Promise<Contributor[]> {
   try {
-    const q = query(collection(db, CONTRIBUTORS_COLLECTION), limit(maxLimit));
+    const q = query(
+      collection(db, CONTRIBUTORS_COLLECTION),
+      orderBy('filesCount', 'desc'),
+      limit(maxLimit)
+    );
     const snapshot = await getDocs(q);
     if (!snapshot.empty) {
       const list: Contributor[] = [];
@@ -618,21 +847,69 @@ export async function fetchContributorsFromFirestore(maxLimit = 100): Promise<Co
         list.push({ ...data, id: docSnap.id });
       });
       if (list.length > 0) {
-        // Merge with existing base contributors to ensure no entries are lost
         const baseContributors = getStoredContributors();
         const map = new Map<string, Contributor>();
-        baseContributors.forEach(c => map.set(c.studentId || c.id, c));
-        list.forEach(c => map.set(c.studentId || c.id, c));
-        const mergedList = Array.from(map.values());
-        setMemoryContributors(mergedList);
-        try {
-          localStorage.setItem(SWR_CONTRIBUTORS_CACHE_KEY, JSON.stringify(mergedList));
-        } catch {}
-        return mergedList;
+        baseContributors.forEach(c => {
+          const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
+          map.set(key, c);
+        });
+        list.forEach(c => {
+          const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
+          map.set(key, c);
+        });
+        const mergedList = Array.from(map.values())
+          .sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+        
+        // Dynamic ranking mapping
+        const rankedList = mergedList.map((item, idx) => ({
+          ...item,
+          rank: idx + 1
+        }));
+        setMemoryContributors(rankedList);
+        return rankedList;
       }
     }
   } catch (err) {
     console.warn('Firestore contributors fetch failed, using stored:', err);
   }
-  return getCachedContributors();
+  return getStoredContributors();
 }
+
+/**
+ * Offline-First Background Sync:
+ * Automatically uploads unsynced local cached submissions to Firestore.
+ */
+export async function syncOfflineSubmissions(): Promise<number> {
+  if (typeof window === 'undefined' || !navigator.onLine) return 0;
+
+  const localSubmissions = getLocalCachedSubmissions();
+  const unsynced = localSubmissions.filter((s: any) => String(s.id).startsWith('sub_'));
+
+  if (unsynced.length === 0) return 0;
+
+  let syncCount = 0;
+  for (const sub of unsynced) {
+    try {
+      const docRef = await addDoc(collection(db, CONTRIBUTIONS_COLLECTION), {
+        ...sub,
+        createdAt: serverTimestamp()
+      });
+
+      // Successfully synced. Update local cache by swapping temp sub_ ID with docRef.id
+      deleteLocalCachedSubmission(sub.id);
+      
+      const syncedSub = {
+        ...sub,
+        id: docRef.id
+      };
+      saveLocalCachedSubmission(syncedSub);
+      syncCount++;
+    } catch (err) {
+      console.warn('Failed to sync offline submission:', sub.id, err);
+      break; // Exit if network fails again
+    }
+  }
+
+  return syncCount;
+}
+

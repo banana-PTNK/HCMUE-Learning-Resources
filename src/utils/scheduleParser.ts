@@ -136,6 +136,9 @@ export function parsePeriods(startRaw: any, endRaw?: any, durationRaw?: any): { 
 
   start = Math.max(1, Math.min(12, start));
   end = Math.max(start, Math.min(12, end));
+  if (end - start + 1 > 4) {
+    end = start + 2; // Capping to 3 periods (typical session duration)
+  }
   return { start, end };
 }
 
@@ -177,22 +180,15 @@ export function cleanRoomName(raw: any): string {
  */
 export function extractBaseCourseCode(classCode?: string, explicitCourseCode?: string): string {
   if (explicitCourseCode && explicitCourseCode.trim()) {
-    return explicitCourseCode.trim().toUpperCase();
+    const cleanExplicit = explicitCourseCode.trim().toUpperCase();
+    const match = cleanExplicit.match(/[A-Z]+\d+/);
+    if (match) return match[0];
+    return cleanExplicit;
   }
   if (!classCode) return 'COMP';
   const clean = classCode.trim().toUpperCase();
-  // Case: Semester prefix 4 digits + course letters & digits + 2 section digits (e.g. 2511COMP180202 -> COMP1802)
-  const semMatch = clean.match(/^\d{4}([A-Z]+\d+)\d{2}$/);
-  if (semMatch) return semMatch[1];
-
-  // Case: Course letters & digits + 2 section digits (e.g. COMP180202 -> COMP1802)
-  const dirMatch = clean.match(/^([A-Z]+\d+)\d{2}$/);
-  if (dirMatch) return dirMatch[1];
-
-  // Case: Separated by underscore or dot or dash (e.g. COMP1802_02, COMP1802.01 -> COMP1802)
-  const sepMatch = clean.match(/^([A-Z0-9]+)[._\-]/);
-  if (sepMatch) return sepMatch[1];
-
+  const match = clean.match(/[A-Z]+\d+/);
+  if (match) return match[0];
   return clean;
 }
 
@@ -740,9 +736,9 @@ export function parseRawTextSchedule(text: string): MasterCourseSection[] | null
 /**
  * Detects file category for batch processing
  */
-export function detectFileType(file: File): 'excel' | 'pdf' | 'image' | 'csv' | 'text' | 'other' {
-  const name = file.name.toLowerCase();
-  const type = file.type.toLowerCase();
+export function detectFileType(fileOrName: File | string): 'excel' | 'pdf' | 'image' | 'csv' | 'text' | 'other' {
+  const name = typeof fileOrName === 'string' ? fileOrName.toLowerCase() : (fileOrName.name || '').toLowerCase();
+  const type = typeof fileOrName === 'string' ? '' : (fileOrName.type || '').toLowerCase();
 
   if (name.endsWith('.xlsx') || name.endsWith('.xls') || type.includes('spreadsheet') || type.includes('excel')) {
     return 'excel';

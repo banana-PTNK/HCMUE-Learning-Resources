@@ -1,14 +1,34 @@
 import { ScheduleItem, MasterCourseSection, CodeAnalysisResult } from '../types';
 
 /**
+ * Safely parses response as JSON, handling non-JSON HTML error pages gracefully
+ */
+async function parseResponseSafely<T = any>(response: Response): Promise<{ ok: boolean; data: T | null; errorText?: string }> {
+  try {
+    const rawText = await response.text();
+    if (!rawText || rawText.trim() === '') {
+      return { ok: response.ok, data: null, errorText: 'Phản hồi rỗng từ máy chủ' };
+    }
+    const trimmed = rawText.trim();
+    if (trimmed.startsWith('<') || trimmed.startsWith('<!doctype') || trimmed.startsWith('<!DOCTYPE')) {
+      return { ok: false, data: null, errorText: `Máy chủ phản hồi trang web thay vì dữ liệu (${response.status})` };
+    }
+    const parsed = JSON.parse(trimmed);
+    return { ok: response.ok, data: parsed };
+  } catch (err: any) {
+    return { ok: false, data: null, errorText: err.message || 'Lỗi định dạng dữ liệu phản hồi' };
+  }
+}
+
+/**
  * Client-Side Image Pre-processing & Downscaling
- * Automatically downscales uploaded schedule images (max width 1080px, JPEG/WebP format, 75% quality)
+ * Automatically downscales uploaded schedule images (max width 1280px, JPEG/WebP format, 75-80% quality)
  * to reduce payload size by ~80%, cutting network latency down to sub-second upload speeds.
  */
 export async function compressImageClientSide(
   fileOrBase64: File | string,
-  maxWidth = 1080,
-  quality = 0.75
+  maxWidth = 1280,
+  quality = 0.8
 ): Promise<{ base64: string; mimeType: string }> {
   // If running in an environment without window/DOM (SSR or worker), pass through
   if (typeof window === 'undefined' || typeof document === 'undefined') {
@@ -27,7 +47,6 @@ export async function compressImageClientSide(
     });
   }
 
-  // Convert File to Object URL or use string base64 directly
   return new Promise((resolve, reject) => {
     let srcUrl = '';
     let shouldRevoke = false;
@@ -59,7 +78,6 @@ export async function compressImageClientSide(
 
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        // Fallback if 2d context unavailable
         if (typeof fileOrBase64 === 'string') {
           return resolve({ base64: fileOrBase64, mimeType: 'image/jpeg' });
         }
@@ -70,12 +88,10 @@ export async function compressImageClientSide(
         return;
       }
 
-      // High quality smoothing
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, 0, 0, width, height);
 
-      // Export as compressed JPEG
       const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
       resolve({
         base64: compressedDataUrl,
@@ -87,7 +103,6 @@ export async function compressImageClientSide(
       if (shouldRevoke) {
         URL.revokeObjectURL(srcUrl);
       }
-      // If error loading image (e.g. PDF or text file), return original representation
       if (typeof fileOrBase64 === 'string') {
         resolve({ base64: fileOrBase64, mimeType: 'image/jpeg' });
       } else {
@@ -104,6 +119,7 @@ export async function compressImageClientSide(
 
 /**
  * Parses university master schedule files with client-side image downscaling and fail-fast API handling.
+ * Completely eliminates silent mock fallbacks: returns strictly what was extracted or throws an actionable error.
  */
 export async function parseMasterScheduleAI(payload: {
   imageBase64?: string;
@@ -116,49 +132,48 @@ export async function parseMasterScheduleAI(payload: {
   systemInstruction?: string;
   universityPreset?: string;
 }): Promise<{ success: boolean; data: MasterCourseSection[]; isMock?: boolean; message?: string }> {
-  try {
-    let finalBase64 = payload.fileBase64 || payload.imageBase64;
-    let finalMimeType = payload.mimeType;
+  let finalBase64 = payload.fileBase64 || payload.imageBase64;
+  let finalMimeType = payload.mimeType;
 
-    // Downscale if it's an image
-    if (finalBase64 && (!finalMimeType || finalMimeType.startsWith('image/'))) {
-      try {
-        const compressed = await compressImageClientSide(finalBase64, 1080, 0.75);
-        finalBase64 = compressed.base64;
-        finalMimeType = compressed.mimeType;
-      } catch (compErr) {
-        console.warn('Image downscaling skipped:', compErr);
-      }
+  // Downscale if it's an image
+  if (finalBase64 && (!finalMimeType || finalMimeType.startsWith('image/'))) {
+    try {
+      const compressed = await compressImageClientSide(finalBase64, 1280, 0.8);
+      finalBase64 = compressed.base64;
+      finalMimeType = compressed.mimeType;
+    } catch (compErr) {
+      console.warn('Image downscaling skipped:', compErr);
     }
-
-    const response = await fetch('/api/ai', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        action: 'PARSE_MASTER_SCHEDULE',
-        payload: {
-          ...payload,
-          fileBase64: finalBase64,
-          imageBase64: finalBase64,
-          mimeType: finalMimeType
-        }
-      })
-    });
-
-    const resJson = await response.json();
-    if (!response.ok || resJson.success === false) {
-      const errMsg = resJson.error || `Lỗi máy chủ (${response.status}): ${response.statusText}`;
-      throw new Error(errMsg);
-    }
-
-    return resJson;
-  } catch (error: any) {
-    console.error('Lỗi phân tích Thời khóa biểu:', error);
-    // Surface precise error to prevent UI hanging
-    throw new Error(error.message || 'Không thể kết nối đến Gemini 3.7 Flash.');
   }
+
+  const response = await fetch('/api/ai', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      action: 'PARSE_MASTER_SCHEDULE',
+      payload: {
+        ...payload,
+        fileBase64: finalBase64,
+        imageBase64: finalBase64,
+        mimeType: finalMimeType
+      }
+    })
+  });
+
+  const parsedRes = await parseResponseSafely(response);
+  
+  if (!parsedRes.ok || !parsedRes.data || parsedRes.data.success === false) {
+    const errMsg = parsedRes.data?.error || parsedRes.errorText || `Lỗi trích xuất thời khóa biểu (${response.status})`;
+    throw new Error(errMsg);
+  }
+
+  return {
+    success: true,
+    data: (parsedRes.data.data || []) as MasterCourseSection[],
+    message: parsedRes.data.message || `Đã trích xuất ${parsedRes.data.data?.length || 0} lớp học phần từ tài liệu`
+  };
 }
 
 /**
@@ -169,46 +184,45 @@ export async function parseScheduleAI(payload: {
   mimeType?: string;
   textData?: string;
 }): Promise<{ success: boolean; data: ScheduleItem[]; isMock?: boolean; message?: string }> {
-  try {
-    let finalImageBase64 = payload.imageBase64;
-    let finalMimeType = payload.mimeType || 'image/jpeg';
+  let finalImageBase64 = payload.imageBase64;
+  let finalMimeType = payload.mimeType || 'image/jpeg';
 
-    if (finalImageBase64) {
-      try {
-        const compressed = await compressImageClientSide(finalImageBase64, 1080, 0.75);
-        finalImageBase64 = compressed.base64;
-        finalMimeType = compressed.mimeType;
-      } catch (compErr) {
-        console.warn('Image downscaling skipped:', compErr);
-      }
+  if (finalImageBase64) {
+    try {
+      const compressed = await compressImageClientSide(finalImageBase64, 1280, 0.8);
+      finalImageBase64 = compressed.base64;
+      finalMimeType = compressed.mimeType;
+    } catch (compErr) {
+      console.warn('Image downscaling skipped:', compErr);
     }
-
-    const response = await fetch('/api/ai', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        action: 'PARSE_SCHEDULE',
-        payload: {
-          ...payload,
-          imageBase64: finalImageBase64,
-          mimeType: finalMimeType
-        }
-      })
-    });
-
-    const resJson = await response.json();
-    if (!response.ok || resJson.success === false) {
-      const errMsg = resJson.error || `Lỗi nhận diện thời khóa biểu (${response.status})`;
-      throw new Error(errMsg);
-    }
-
-    return resJson;
-  } catch (error: any) {
-    console.error('Lỗi nhận diện thời khóa biểu cá nhân:', error);
-    throw new Error(error.message || 'Không thể nhận diện thời khóa biểu.');
   }
+
+  const response = await fetch('/api/ai', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      action: 'PARSE_SCHEDULE',
+      payload: {
+        ...payload,
+        imageBase64: finalImageBase64,
+        mimeType: finalMimeType
+      }
+    })
+  });
+
+  const parsedRes = await parseResponseSafely(response);
+  if (!parsedRes.ok || !parsedRes.data || parsedRes.data.success === false) {
+    const errMsg = parsedRes.data?.error || parsedRes.errorText || `Lỗi nhận diện thời khóa biểu (${response.status})`;
+    throw new Error(errMsg);
+  }
+
+  return {
+    success: true,
+    data: (parsedRes.data.data || []) as ScheduleItem[],
+    message: parsedRes.data.message || `Đã nhận diện ${parsedRes.data.data?.length || 0} môn học`
+  };
 }
 
 /**
@@ -218,27 +232,26 @@ export async function explainCodeAI(payload: {
   code: string;
   language: string;
 }): Promise<{ success: boolean; data: CodeAnalysisResult; isMock?: boolean; message?: string }> {
-  try {
-    const response = await fetch('/api/ai', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        action: 'EXPLAIN_CODE',
-        payload
-      })
-    });
+  const response = await fetch('/api/ai', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      action: 'EXPLAIN_CODE',
+      payload
+    })
+  });
 
-    const resJson = await response.json();
-    if (!response.ok || resJson.success === false) {
-      const errMsg = resJson.error || `Lỗi phân tích mã nguồn (${response.status})`;
-      throw new Error(errMsg);
-    }
-
-    return resJson;
-  } catch (error: any) {
-    console.error('Lỗi phân tích thuật toán:', error);
-    throw new Error(error.message || 'Không thể phân tích thuật toán.');
+  const parsedRes = await parseResponseSafely(response);
+  if (!parsedRes.ok || !parsedRes.data || parsedRes.data.success === false) {
+    const errMsg = parsedRes.data?.error || parsedRes.errorText || `Lỗi phân tích mã nguồn (${response.status})`;
+    throw new Error(errMsg);
   }
+
+  return {
+    success: true,
+    data: parsedRes.data.data as CodeAnalysisResult,
+    message: parsedRes.data.message || 'Đã phân tích mã nguồn thành công'
+  };
 }

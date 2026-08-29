@@ -1,0 +1,8 @@
+{
+  "firestore": {
+    "databaseId": "ai-studio-hcmuefitstudyvau-7c258ce1-cc2e-4438-b51b-7601001d8b3f",
+    "rules": "firestore.rules",
+    "edition": "ENTERPRISE",
+    "dataAccessMode": "FIRESTORE_NATIVE"
+  }
+}

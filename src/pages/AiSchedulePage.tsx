@@ -219,7 +219,11 @@ const AiSchedulePageComponent: React.FC<AiSchedulePageProps> = ({ onNavigate }) 
     handleBatchComplete: ctxBatchComplete,
     handleRemoveFile: ctxRemoveFile,
     handleClearAllFiles: ctxClearAllFiles,
-    handleResetAll: ctxResetAll
+    handleResetAll: ctxResetAll,
+    isProcessing: queueProcessing,
+    overallProgress: queueProgress,
+    fileQueue,
+    queueMetrics
   } = useSchedule();
 
   // Search filter for master catalog
@@ -696,6 +700,25 @@ const AiSchedulePageComponent: React.FC<AiSchedulePageProps> = ({ onNavigate }) 
         </div>
       </div>
 
+      {/* Persistent Background Queue Progress Banner */}
+      {queueProcessing && activeStage !== 1 && (
+        <div className="p-3 rounded-2xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800/60 flex items-center justify-between gap-3 text-xs shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2.5 text-blue-900 dark:text-blue-200 min-w-0">
+            <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin shrink-0" />
+            <span className="truncate">
+              Đang xử lý ngầm {queueMetrics?.completedFiles ?? 0}/{fileQueue.length} tệp thời khóa biểu ({queueProgress}%)... Dữ liệu sẽ tự động đồng bộ vào danh mục khi hoàn tất.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveStage(1)}
+            className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs whitespace-nowrap cursor-pointer transition-colors shadow-sm"
+          >
+            Xem tiến trình
+          </button>
+        </div>
+      )}
+
       {/* Stage Stepper Tabs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 p-1.5 rounded-2xl bg-white dark:bg-[#131b2e] border border-slate-200 dark:border-slate-800 shadow-sm">
         <button
@@ -720,11 +743,16 @@ const AiSchedulePageComponent: React.FC<AiSchedulePageProps> = ({ onNavigate }) 
         </button>
 
         <button
-          onClick={() => setActiveStage(2)}
-          className={`flex items-center justify-center gap-2.5 py-3 px-3 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+          onClick={() => masterCatalog.length > 0 && setActiveStage(2)}
+          disabled={masterCatalog.length === 0}
+          className={`flex items-center justify-center gap-2.5 py-3 px-3 rounded-xl text-sm font-semibold transition-all ${
+            masterCatalog.length === 0
+              ? 'opacity-40 cursor-not-allowed text-slate-400'
+              : 'cursor-pointer text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70'
+          } ${
             activeStage === 2
               ? 'bg-blue-600 text-white shadow-md'
-              : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70'
+              : ''
           }`}
         >
           <div
@@ -742,13 +770,20 @@ const AiSchedulePageComponent: React.FC<AiSchedulePageProps> = ({ onNavigate }) 
 
         <button
           onClick={() => {
-            setActiveStage(3);
-            runScheduler();
+            if (masterCatalog.length > 0) {
+              setActiveStage(3);
+              runScheduler();
+            }
           }}
-          className={`flex items-center justify-center gap-2.5 py-3 px-3 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+          disabled={masterCatalog.length === 0}
+          className={`flex items-center justify-center gap-2.5 py-3 px-3 rounded-xl text-sm font-semibold transition-all ${
+            masterCatalog.length === 0
+              ? 'opacity-40 cursor-not-allowed text-slate-400'
+              : 'cursor-pointer text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70'
+          } ${
             activeStage === 3
               ? 'bg-blue-600 text-white shadow-md'
-              : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70'
+              : ''
           }`}
         >
           <div
@@ -765,11 +800,16 @@ const AiSchedulePageComponent: React.FC<AiSchedulePageProps> = ({ onNavigate }) 
         </button>
 
         <button
-          onClick={() => setActiveStage(4)}
-          className={`flex items-center justify-center gap-2.5 py-3 px-3 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+          onClick={() => masterCatalog.length > 0 && setActiveStage(4)}
+          disabled={masterCatalog.length === 0}
+          className={`flex items-center justify-center gap-2.5 py-3 px-3 rounded-xl text-sm font-semibold transition-all ${
+            masterCatalog.length === 0
+              ? 'opacity-40 cursor-not-allowed text-slate-400'
+              : 'cursor-pointer text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70'
+          } ${
             activeStage === 4
               ? 'bg-blue-600 text-white shadow-md'
-              : 'text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70'
+              : ''
           }`}
         >
           <div
@@ -1652,27 +1692,37 @@ const AiSchedulePageComponent: React.FC<AiSchedulePageProps> = ({ onNavigate }) 
                   setShowRawInputModal(false);
                   setIsProcessing(true);
                   setStatusMessage('Đang phân tích và trích xuất dữ liệu thời khóa biểu bằng Trợ lý thông minh với bộ prompt tối ưu...');
-                  const engineeredPrompt = buildMasterScheduleExtractionPrompt({
-                    universityPreset: rawUniversityPreset,
-                    customCues: rawCustomCues
-                  });
-                  const res = await parseMasterScheduleAI({
-                    textData: rawTextInput,
-                    customPrompt: engineeredPrompt,
-                    universityPreset: rawUniversityPreset
-                  });
-                  if (res.success && res.data.length > 0) {
-                    setMasterCatalog(res.data);
-                    setStatusMessage(`✨ Đã trích xuất chuẩn xác ${res.data.length} lớp học phần (Định dạng: ${rawUniversityPreset}).`);
-                    const uniqueCodes = Array.from(new Set(res.data.map((d) => d.courseCode)));
-                    const initialSelected = uniqueCodes.slice(0, Math.min(5, uniqueCodes.length));
-                    setSelectedCourseCodes(initialSelected);
-                    runScheduler(initialSelected, constraints, res.data);
-                    confetti({ particleCount: 60 });
-                  } else {
-                    setStatusMessage(res.message || 'Không tìm thấy lớp học phần phù hợp trong nội dung dán vào.');
+                  try {
+                    const engineeredPrompt = buildMasterScheduleExtractionPrompt({
+                      universityPreset: rawUniversityPreset,
+                      customCues: rawCustomCues
+                    });
+                    const res = await parseMasterScheduleAI({
+                      textData: rawTextInput,
+                      customPrompt: engineeredPrompt,
+                      universityPreset: rawUniversityPreset
+                    });
+                    if (res.success && res.data.length > 0) {
+                      setMasterCatalog(res.data);
+                      setStatusMessage(`✨ Đã trích xuất chuẩn xác ${res.data.length} lớp học phần (Định dạng: ${rawUniversityPreset}).`);
+                      const uniqueCodes = Array.from(new Set(res.data.map((d) => d.courseCode)));
+                      const initialSelected = uniqueCodes.slice(0, Math.min(5, uniqueCodes.length));
+                      setSelectedCourseCodes(initialSelected);
+                      runScheduler(initialSelected, constraints, res.data);
+                      confetti({ particleCount: 60 });
+                      toast.success(`Đã trích xuất thành công ${res.data.length} lớp học phần.`);
+                    } else {
+                      const msg = res.message || 'Không tìm thấy lớp học phần phù hợp trong nội dung dán vào.';
+                      setStatusMessage(msg);
+                      toast.warning(msg);
+                    }
+                  } catch (err: any) {
+                    const errText = err.message || 'Lỗi trích xuất thời khóa biểu';
+                    setStatusMessage(`⚠️ ${errText}`);
+                    toast.error(errText);
+                  } finally {
+                    setIsProcessing(false);
                   }
-                  setIsProcessing(false);
                 }}
                 className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md shadow-blue-900/30 flex items-center gap-2 disabled:opacity-50"
               >

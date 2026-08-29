@@ -6,6 +6,7 @@ import {
   compressImageFileNonBlocking,
   yieldToMainThread
 } from './scheduleParser';
+import { extractTextFromPdfFile } from './pdfExtractor';
 import { parseMasterScheduleAI } from '../services/aiService';
 import * as XLSX from 'xlsx';
 
@@ -272,12 +273,35 @@ export class TkbParallelQueue {
     const { id, file, type, name } = item;
     if (!file) return [];
 
-    const engineeredPrompt = `=== QUY TẮC TRÍCH XUẤT CHÍNH XÁC CAO & GHÉP NỐI CỘT (JOIN) ===
-1. GHÉP NỐI CỘT BẢNG PHÂN TÁCH: Nếu tài liệu PDF/bảng gồm nhiều khối lặp lại STT hoặc Mã LHP (Khối 1: STT, Mã HP, Mã LHP, Tên môn, Số TC; Khối 2: STT, Thứ, Tiết BĐ, Tiết KT; Khối 3: STT, Phòng, GV), BẮT BUỘC dùng 'STT' hoặc 'Mã LHP' làm Khóa chính (Primary Key) để gom (JOIN) thành bản ghi hoàn chỉnh.
-2. GIẢNG VIÊN (lecturer): Giữ nguyên 100% họ tên và chức danh học hàm/học vị (TS, ThS, PGS.TS, v.v.). Không tự ý bịa tên hoặc thay thế tên. Nếu ô trống, đặt "Chưa phân công".
-3. PHÒNG HỌC (room): Giữ đúng ký hiệu phòng thực tế (A.302, B.204, Lab 1, PM3, Online...). Không tự gán phòng mặc định bừa bãi. Nếu ô trống, đặt "Chưa xếp phòng".
-4. MÃ LỚP HỌC PHẦN (classCode) & MÃ HỌC PHẦN (courseCode): Lấy chính xác mã lớp học phần cụ thể của từng dòng.
-5. NHIỀU BUỔI HỌC: Nếu lớp có nhiều buổi trong tuần (hoặc 1 buổi LT + 1 buổi TH), tách thành các dòng JSON riêng biệt nhưng có cùng mã môn và mã lớp.`;
+    const engineeredPrompt = `=== HỆ THỐNG TRÍCH XUẤT THỜI KHÓA BIỂU ĐẠI HỌC QUAN HỆ 5 PHÂN ĐOẠN (HIGH-PRECISION GEMINI) ===
+
+QUY TRÌNH GHÉP NỐI QUAN HỆ (RELATIONAL JOIN) BẮT BUỘC THEO STT:
+Tài liệu TKB này gồm 5 phân đoạn độc lập phân tách theo số trang liên kết với nhau bằng Khóa chính 'STT' (Số thứ tự):
+- Phân đoạn 1 (Trang 1-7): STT, Mã học phần (courseCode), Mã lớp học phần (classCode), Tên học phần (courseName), Số TC (credits), VLE.
+- Phân đoạn 2 (Trang 8-14): STT, Thứ (dayOfWeek: 2-7, CN là 8).
+- Phân đoạn 3 (Trang 15-21): STT, Tiết bắt đầu (startPeriod), Tiết kết thúc (endPeriod).
+- Phân đoạn 4 (Trang 22-28): STT, Phòng học (room).
+- Phân đoạn 5 (Trang 29-35): STT, Giảng viên (lecturer).
+
+NGUYÊN TẮC GHÉP DỮ LIỆU:
+1. Bạn phải duyệt qua từng dòng STT từ 1 đến hết (ví dụ: STT = 16, 17, 18...).
+2. Với mỗi STT:
+   - Tra cứu tên môn, mã môn, mã lớp học phần ở Phân đoạn 1.
+   - Tra cứu Thứ ở Phân đoạn 2.
+   - Tra cứu Tiết bắt đầu & kết thúc ở Phân đoạn 3.
+   - Tra cứu Phòng học ở Phân đoạn 4.
+   - Tra cứu Giảng viên ở Phân đoạn 5.
+   - Ghép tất cả các thuộc tính trên lại thành một hoặc nhiều ca học hoàn chỉnh.
+3. XỬ LÝ CA HỌC NHIỀU BUỔI (Lý thuyết + Thực hành hoặc Học nhiều buổi):
+   - Nếu trong một ô STT có nhiều hàng Thứ học xếp chồng (ví dụ STT = 16 có Thứ 3 và Thứ 5):
+     * Tách thành 2 đối tượng độc lập trong mảng JSON trả về.
+     * Buổi 1: Thứ 3. Buổi 2: Thứ 5.
+     * Khớp tương ứng theo dòng với dòng Tiết học ở Phân đoạn 3 (Ví dụ dòng 1: Tiết 7-9; dòng 2: Tiết 10-12).
+     * Khớp tương ứng với dòng Phòng học ở Phân đoạn 4 (Ví dụ dòng 1: Phòng I.203; dòng 2: Phòng I.102).
+     * Khớp tương ứng với dòng Giảng viên ở Phân đoạn 5 (Ví dụ dòng 1: GV Trần Hữu Quốc Thư; dòng 2: GV Trần Hữu Quốc Thư).
+4. GIẢNG VIÊN (lecturer): Giữ nguyên 100% họ tên kèm chức danh (TS., ThS., PGS.TS...). TUYỆT ĐỐI không được gán tên môn học vào cột giảng viên. Nếu không có giảng viên hoặc giảng viên chưa xếp, hãy điền trống ("") hoặc đặt "Chưa xếp" để hệ thống tự lọc bỏ.
+5. PHÒNG HỌC (room): Ghi đúng phòng học thực tế (ví dụ: I.203, I.102, C.301, Online...). Nếu không có phòng, hãy điền trống ("") hoặc đặt "Chưa xếp".
+6. CHỈ trả về một mảng JSON các lớp học phần hoàn chỉnh. Không thêm bất kỳ giải thích nào ngoài mảng JSON.`;
 
     // 1. FAST NON-BLOCKING SPREADSHEET (Excel / CSV)
     if (type === 'excel' || type === 'csv') {
@@ -364,7 +388,55 @@ export class TkbParallelQueue {
 
     // 3. PDF DOCUMENT
     if (type === 'pdf') {
-      this.callbacks.onItemProgress?.(id, 25, `Đang đọc tệp PDF...`, 'processing');
+      this.callbacks.onItemProgress?.(id, 20, `Đang đọc cấu trúc tệp PDF...`, 'processing');
+      await yieldToMainThread();
+
+      // Step 3a: Attempt blazing-fast client-side text extraction
+      let extractedText = '';
+      try {
+        extractedText = await extractTextFromPdfFile(file);
+      } catch (pdfErr) {
+        console.warn('Local PDF text extract warning:', pdfErr);
+      }
+
+      if (abortController.signal.aborted) throw new Error('Aborted');
+
+      if (extractedText && extractedText.trim().length > 50) {
+        // Always prioritize Gemini AI Relational Join for PDFs to preserve multi-page structural integrity
+        this.callbacks.onItemProgress?.(id, 45, `Đang đối chiếu AI thông minh...`, 'processing');
+        await yieldToMainThread();
+
+        try {
+          const res = await parseMasterScheduleAI({
+            textData: extractedText.slice(0, 95000),
+            fileName: file.name,
+            fileType: 'pdf',
+            customPrompt: engineeredPrompt
+          });
+
+          if (res.success && res.data && res.data.length > 0) {
+            return res.data.map((s) => ({ ...s, sourceFile: file.name }));
+          }
+        } catch (aiErr) {
+          console.warn('Gemini AI PDF parsing failed, trying local fallback:', aiErr);
+        }
+
+        // Only fall back to local parser if AI failed
+        this.callbacks.onItemProgress?.(id, 65, `Đang xử lý dự phòng cục bộ...`, 'processing');
+        await yieldToMainThread();
+
+        try {
+          const localParsed = await parseRawTextScheduleNonBlocking(extractedText);
+          if (localParsed && localParsed.length > 0) {
+            return localParsed.map((s) => ({ ...s, sourceFile: file.name }));
+          }
+        } catch (localErr) {
+          console.warn('Local parse fallback failed:', localErr);
+        }
+      }
+
+      // Step 3c: Fallback to base64 PDF upload if text layer was empty (e.g. scanned image)
+      this.callbacks.onItemProgress?.(id, 75, `Đang xử lý hình ảnh tài liệu...`, 'processing');
       await yieldToMainThread();
 
       const reader = new FileReader();
@@ -377,9 +449,6 @@ export class TkbParallelQueue {
       });
 
       if (abortController.signal.aborted) throw new Error('Aborted');
-
-      this.callbacks.onItemProgress?.(id, 60, `Đang trích xuất dữ liệu PDF...`, 'processing');
-      await yieldToMainThread();
 
       const res = await parseMasterScheduleAI({
         fileBase64: base64,

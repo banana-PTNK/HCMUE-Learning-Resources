@@ -1,4 +1,5 @@
 import { MasterCourseSection, ScheduleConstraints, TimetableSolution } from '../types';
+import { extractBaseCourseCode } from './scheduleParser';
 
 export const COURSE_COLORS = [
   '#3b82f6', // blue
@@ -39,10 +40,22 @@ export function isVLESection(sec: MasterCourseSection): boolean {
  * VLE / Online sessions are excluded from physical time clashes.
  */
 export function hasTimeClash(a: MasterCourseSection, b: MasterCourseSection): boolean {
+  if (!a || !b) return false;
   if (isVLESection(a) || isVLESection(b)) return false;
-  if (a.dayOfWeek !== b.dayOfWeek) return false;
+  
+  const dayA = Number(a.dayOfWeek);
+  const dayB = Number(b.dayOfWeek);
+  if (dayA !== dayB) return false;
+
+  const startA = Number(a.startPeriod);
+  const endA = Number(a.endPeriod);
+  const startB = Number(b.startPeriod);
+  const endB = Number(b.endPeriod);
+
+  if (isNaN(startA) || isNaN(endA) || isNaN(startB) || isNaN(endB)) return false;
+
   // Overlap condition: neither ends before the other starts
-  return !(a.endPeriod < b.startPeriod || a.startPeriod > b.endPeriod);
+  return !(endA < startB || startA > endB);
 }
 
 /**
@@ -67,7 +80,7 @@ export function findClashes(sections: MasterCourseSection[]): { a: MasterCourseS
  */
 export function getScheduleFingerprint(sections: MasterCourseSection[]): string {
   return sections
-    .map((s) => `${(s.courseCode || '').trim().toUpperCase()}:::${(s.classCode || '').trim().toUpperCase()}:::${s.dayOfWeek}:::${s.startPeriod}-${s.endPeriod}`)
+    .map((s) => `${(s.courseCode || extractBaseCourseCode(s.classCode)).trim().toUpperCase()}:::${(s.classCode || '').trim().toUpperCase()}:::${s.dayOfWeek}:::${s.startPeriod}-${s.endPeriod}`)
     .sort()
     .join('|||');
 }
@@ -79,8 +92,9 @@ export function getScheduleFingerprint(sections: MasterCourseSection[]): string 
 export function getTimeAndCourseFingerprint(sections: MasterCourseSection[]): string {
   return sections
     .map((s) => {
-      const baseCode = (s.courseCode || s.classCode || '').trim().toUpperCase();
-      return `${baseCode}@D${s.dayOfWeek}:P${s.startPeriod}-${s.endPeriod}`;
+      const baseCode = (s.courseCode || extractBaseCourseCode(s.classCode) || s.classCode || '').trim().toUpperCase();
+      const lecturer = (s.lecturer || '').trim().toUpperCase();
+      return `${baseCode}@D${s.dayOfWeek}:P${s.startPeriod}-${s.endPeriod}:${lecturer}`;
     })
     .sort()
     .join('|');
@@ -95,36 +109,25 @@ export function generateCourseOptionBundles(
   courseCode: string,
   catalog: MasterCourseSection[]
 ): MasterCourseSection[][] {
-  const sections = catalog.filter((s) => s.courseCode === courseCode);
+  const sections = catalog.filter(
+    (s) =>
+      (s.courseCode && s.courseCode.trim().toUpperCase() === courseCode.trim().toUpperCase()) ||
+      extractBaseCourseCode(s.classCode).toUpperCase() === courseCode.trim().toUpperCase()
+  );
   if (sections.length === 0) return [];
 
-  // Group sections by unique classCode or group into atomic class session lists
-  const ltMap = new Map<string, MasterCourseSection[]>();
-  const thMap = new Map<string, MasterCourseSection[]>();
-  const generalMap = new Map<string, MasterCourseSection[]>();
+  // Group sections strictly by classCode or fallback key
+  const bundlesMap = new Map<string, MasterCourseSection[]>();
 
   for (const s of sections) {
-    const isTH = s.classType === 'TH';
-    const isLT = s.classType === 'LT';
-    const key = s.classCode || `${s.courseCode}_${s.group || s.classType}`;
-
-    if (isTH) {
-      if (!thMap.has(key)) thMap.set(key, []);
-      thMap.get(key)!.push(s);
-    } else if (isLT) {
-      if (!ltMap.has(key)) ltMap.set(key, []);
-      ltMap.get(key)!.push(s);
-    } else {
-      if (!generalMap.has(key)) generalMap.set(key, []);
-      generalMap.get(key)!.push(s);
+    const key = (s.classCode || `${s.courseCode || extractBaseCourseCode(s.classCode)}_${s.group || s.classType || ''}`).trim();
+    if (!bundlesMap.has(key)) {
+      bundlesMap.set(key, []);
     }
+    bundlesMap.get(key)!.push(s);
   }
 
-  const ltBundles = Array.from(ltMap.values());
-  const thBundles = Array.from(thMap.values());
-  const generalBundles = Array.from(generalMap.values());
-
-  const rawBundles: MasterCourseSection[][] = [];
+  const rawBundles = Array.from(bundlesMap.values());
 
   // Helper: Check if all sessions inside a single bundle clash with each other
   const hasInternalClash = (list: MasterCourseSection[]): boolean => {
@@ -136,58 +139,17 @@ export function generateCourseOptionBundles(
     return false;
   };
 
-  // Helper: Check if two bundles clash with each other
-  const bundlesClash = (a: MasterCourseSection[], b: MasterCourseSection[]): boolean => {
-    for (const sa of a) {
-      for (const sb of b) {
-        if (hasTimeClash(sa, sb)) return true;
-      }
-    }
-    return false;
-  };
+  const validBundles = rawBundles.filter((b) => !hasInternalClash(b));
 
-  if (ltBundles.length > 0 && thBundles.length > 0) {
-    // Both theory and lab required: combine all sessions of LT with all sessions of TH
-    for (const lt of ltBundles) {
-      if (hasInternalClash(lt)) continue;
-      for (const th of thBundles) {
-        if (hasInternalClash(th)) continue;
-        if (!bundlesClash(lt, th)) {
-          rawBundles.push([...lt, ...th]);
-        }
-      }
-    }
-    // Fallback: If all LT+TH pairs clash, at least provide valid LT bundles
-    if (rawBundles.length === 0) {
-      for (const lt of ltBundles) {
-        if (!hasInternalClash(lt)) rawBundles.push(lt);
-      }
-    }
-  } else if (ltBundles.length > 0) {
-    for (const lt of ltBundles) {
-      if (!hasInternalClash(lt)) rawBundles.push(lt);
-    }
-  } else if (thBundles.length > 0) {
-    for (const th of thBundles) {
-      if (!hasInternalClash(th)) rawBundles.push(th);
-    }
-  } else {
-    for (const gen of generalBundles) {
-      if (!hasInternalClash(gen)) rawBundles.push(gen);
-    }
+  // Fallback: If all bundles have internal clashes, return them individually
+  if (validBundles.length === 0) {
+    return sections.map((s) => [s]);
   }
 
-  // Absolute fallback
-  if (rawBundles.length === 0) {
-    for (const s of sections) {
-      rawBundles.push([s]);
-    }
-  }
-
-  // Strict bundle deduplication
+  // Deduplicate bundles that have identical schedules
   const seenBundleFingerprints = new Set<string>();
   const uniqueBundles: MasterCourseSection[][] = [];
-  for (const b of rawBundles) {
+  for (const b of validBundles) {
     const fp = getScheduleFingerprint(b);
     if (!seenBundleFingerprints.has(fp)) {
       seenBundleFingerprints.add(fp);
@@ -230,8 +192,9 @@ export function evaluateScheduleScore(
     if (s.startPeriod >= 7) afternoonCount++;
 
     // Preferred lecturer bonus
-    if (constraints.preferredLecturers && constraints.preferredLecturers[s.courseCode]) {
-      const pref = constraints.preferredLecturers[s.courseCode].toLowerCase();
+    const sCourseCode = (s.courseCode || extractBaseCourseCode(s.classCode)).trim().toUpperCase();
+    if (constraints.preferredLecturers && (constraints.preferredLecturers[s.courseCode] || constraints.preferredLecturers[sCourseCode])) {
+      const pref = (constraints.preferredLecturers[s.courseCode] || constraints.preferredLecturers[sCourseCode]).toLowerCase();
       if (s.lecturer && s.lecturer.toLowerCase().includes(pref)) {
         score += 15;
       }
@@ -319,6 +282,11 @@ export function evaluateScheduleScore(
     } else {
       score -= 15;
     }
+  } else if (constraints.preferredPeriod === 'all') {
+    if (morningCount > 0 && afternoonCount > 0) {
+      score += 15;
+      tags.push('Học cả sáng & chiều');
+    }
   }
 
   if (clashCount === 0 && !tags.includes('Không trùng giờ')) {
@@ -337,7 +305,7 @@ export function solveTimetableCSP(
   catalog: MasterCourseSection[],
   selectedCourseCodes: string[],
   constraints: ScheduleConstraints,
-  maxSolutions = 7
+  maxSolutions = 10
 ): TimetableSolution[] {
   if (selectedCourseCodes.length === 0) return [];
 
@@ -461,21 +429,31 @@ export function solveTimetableCSP(
     const mostCompact = [...foundSolutions].sort((a, b) => a.activeDays.length - b.activeDays.length || b.score - a.score);
     if (mostCompact[0]) addIfDistinct(mostCompact[0]);
 
-    // Strategy 3: Best Morning-friendly Schedule (least early 7am, most morning focus)
-    const bestMorning = [...foundSolutions].sort((a, b) => {
-      const aMorningCount = a.sections.filter((s) => s.startPeriod <= 6).length;
-      const bMorningCount = b.sections.filter((s) => s.startPeriod <= 6).length;
-      return bMorningCount - aMorningCount || b.score - a.score;
-    });
-    if (bestMorning[0]) addIfDistinct(bestMorning[0]);
+    if (constraints.preferredPeriod === 'all') {
+      // Strategy 3: Best Balanced / Day-Sharing Schedule (has both morning and afternoon classes)
+      const bestBalanced = [...foundSolutions].sort((a, b) => {
+        const aHasBoth = (a.sections.some(s => s.startPeriod <= 6) && a.sections.some(s => s.startPeriod >= 7)) ? 1 : 0;
+        const bHasBoth = (b.sections.some(s => s.startPeriod <= 6) && b.sections.some(s => s.startPeriod >= 7)) ? 1 : 0;
+        return bHasBoth - aHasBoth || b.score - a.score;
+      });
+      if (bestBalanced[0]) addIfDistinct(bestBalanced[0]);
+    } else {
+      // Strategy 3: Best Morning-friendly Schedule (least early 7am, most morning focus)
+      const bestMorning = [...foundSolutions].sort((a, b) => {
+        const aMorningCount = a.sections.filter((s) => s.startPeriod <= 6).length;
+        const bMorningCount = b.sections.filter((s) => s.startPeriod <= 6).length;
+        return bMorningCount - aMorningCount || b.score - a.score;
+      });
+      if (bestMorning[0]) addIfDistinct(bestMorning[0]);
 
-    // Strategy 4: Best Afternoon/Late-friendly Schedule
-    const bestAfternoon = [...foundSolutions].sort((a, b) => {
-      const aAfternoonCount = a.sections.filter((s) => s.startPeriod >= 7).length;
-      const bAfternoonCount = b.sections.filter((s) => s.startPeriod >= 7).length;
-      return bAfternoonCount - aAfternoonCount || b.score - a.score;
-    });
-    if (bestAfternoon[0]) addIfDistinct(bestAfternoon[0]);
+      // Strategy 4: Best Afternoon/Late-friendly Schedule
+      const bestAfternoon = [...foundSolutions].sort((a, b) => {
+        const aAfternoonCount = a.sections.filter((s) => s.startPeriod >= 7).length;
+        const bAfternoonCount = b.sections.filter((s) => s.startPeriod >= 7).length;
+        return bAfternoonCount - aAfternoonCount || b.score - a.score;
+      });
+      if (bestAfternoon[0]) addIfDistinct(bestAfternoon[0]);
+    }
 
     // Fill remaining distinct slots up to maxSolutions (max 7) from the highest-ranked solutions
     for (const sol of foundSolutions) {

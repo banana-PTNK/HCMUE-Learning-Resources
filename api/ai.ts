@@ -54,12 +54,104 @@ function parseJsonArraySafely(rawText: string): any[] {
     } catch {}
   }
 
-  if (extractedObjects.length > 0) {
-    return extractedObjects;
-  }
-
-  return [];
+  return extractedObjects;
 }
+
+// High-precision sanitization and normalization for university course sections
+function isHeaderOrNoiseString(val: string): boolean {
+  if (!val || typeof val !== 'string') return true;
+  const upper = val.trim().toUpperCase();
+  if (upper.length < 2) return true;
+  const noiseTokens = [
+    'STT', 'SỐ THỨ TỰ', 'SO THU TU',
+    'MÃ HP', 'MA HP', 'MÃ HỌC PHẦN', 'MA HOC PHAN', 'MÃ MÔN', 'MA MON',
+    'MÃ LHP', 'MA LHP', 'MÃ LỚP HỌC PHẦN', 'MA LOP HOC PHAN', 'MÃ LỚP', 'MA LOP',
+    'TÊN HP', 'TEN HP', 'TÊN HỌC PHẦN', 'TEN HOC PHAN', 'TÊN MÔN', 'TEN MON', 'TÊN MÔN HỌC', 'TEN MON HOC',
+    'THỜI KHÓA BIỂU', 'THOI KHOA BIEU', 'LỊCH HỌC', 'LICH HOC', 'TIMETABLE', 'SCHEDULE',
+    'HỌC KỲ', 'HOC KY', 'SEMESTER', 'NĂM HỌC', 'NAM HOC', 'TRƯỜNG ĐẠI HỌC', 'TRUONG DAI HOC',
+    'KHOA CNTT', 'KHOA TOÁN', 'PHÒNG ĐÀO TẠO', 'PHONG DAO TAO',
+    'GIẢNG VIÊN', 'GIANG VIEN', 'CBGD', 'CÁN BỘ GIẢNG DẠY', 'CAN BO GIANG DAY',
+    'PHÒNG', 'PHONG', 'PHÒNG HỌC', 'PHONG HOC', 'ĐỊA ĐIỂM', 'DIA DIEM', 'ROOM',
+    'THỨ', 'THU', 'TIẾT', 'TIET', 'TIẾT BĐ', 'TIẾT KT', 'TUẦN', 'TUAN', 'GHI CHÚ', 'GHI CHU',
+    'SỐ TC', 'SO TC', 'SỐ TÍN CHỈ', 'SO TIN CHI', 'CREDITS', 'TOTAL'
+  ];
+  return noiseTokens.some((t) => upper === t || upper === `${t}:` || upper === `${t}.`);
+}
+
+function cleanLecturerName(raw: any): string {
+  if (!raw || typeof raw !== 'string') return '';
+  let str = raw.trim()
+    .replace(/^[-–—:;,.]+/, '')
+    .replace(/[-–—:;,.]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  // Reject garbage/placeholder words
+  const lower = str.toLowerCase();
+  if (
+    !str ||
+    str.length < 2 ||
+    lower === '-' ||
+    lower === '--' ||
+    lower === '...' ||
+    lower === 'null' ||
+    lower === 'undefined' ||
+    lower === 'n/a' ||
+    lower === 'chưa phân công' ||
+    lower === 'chua phan cong' ||
+    lower === 'chưa có' ||
+    lower === 'chua co' ||
+    lower === 'chưa xếp' ||
+    lower === 'chua xep' ||
+    isHeaderOrNoiseString(str)
+  ) {
+    return '';
+  }
+  return str;
+}
+
+function cleanRoomName(raw: any): string {
+  if (!raw || typeof raw !== 'string') return '';
+  let str = raw.trim()
+    .replace(/^[-–—:;,.]+/, '')
+    .replace(/[-–—:;,.]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  const lower = str.toLowerCase();
+  if (
+    !str ||
+    str.length < 2 ||
+    lower === '-' ||
+    lower === '--' ||
+    lower === 'null' ||
+    lower === 'undefined' ||
+    lower === 'n/a' ||
+    lower === 'chưa xếp phòng' ||
+    lower === 'chua xep phong' ||
+    lower === 'chưa có' ||
+    lower === 'chua co' ||
+    isHeaderOrNoiseString(str)
+  ) {
+    return '';
+  }
+  return str;
+}
+
+function healCourseCode(raw: string): string {
+  if (!raw) return '';
+  let code = raw.trim().toUpperCase().replace(/[\s\-_.]+/g, '');
+  // Fix common OCR misrecognitions (CONF -> COMP, C0MP -> COMP, ITEC, MATH)
+  code = code
+    .replace(/^CONF/i, 'COMP')
+    .replace(/^C0MP/i, 'COMP')
+    .replace(/^C0NF/i, 'COMP')
+    .replace(/^1TEC/i, 'ITEC')
+    .replace(/^1T/i, 'IT')
+    .replace(/^M4TH/i, 'MATH');
+  return code;
+}
+
 
 function parseJsonObjectSafely(rawText: string): any {
   if (!rawText || typeof rawText !== 'string') return {};
@@ -80,110 +172,191 @@ function parseJsonObjectSafely(rawText: string): any {
   return {};
 }
 
+/**
+ * Strict normalizer & validator for master schedule sections.
+ * Enforces extraction completeness: MUST have valid courseName, courseCode/classCode,
+ * valid dayOfWeek (2..8), valid start/end periods (1..12), valid lecturer, and valid room.
+ * Drops all corrupted, incomplete, or header noise items.
+ */
 function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string): any[] {
   if (!Array.isArray(rawList)) return [];
-  return rawList.map((item, idx) => {
-    let day = item.dayOfWeek ?? item.thu ?? item.day ?? item.thuHoc ?? 2;
+
+  const results: any[] = [];
+  const seenKey = new Set<string>();
+
+  for (let idx = 0; idx < rawList.length; idx++) {
+    const item = rawList[idx];
+    if (!item || typeof item !== 'object') continue;
+
+    // 1. Course Name (MUST BE VALID & NOT HEADER NOISE)
+    let courseName = String(item.courseName ?? item.tenHocPhan ?? item.tenHp ?? item.tenMh ?? item.tenMon ?? item.subjectName ?? '').trim();
+    if (!courseName || courseName.length < 2 || isHeaderOrNoiseString(courseName)) {
+      continue;
+    }
+
+    // 2. Course Code & Class Code
+    let rawCourseCode = String(item.courseCode ?? item.maHocPhan ?? item.maHp ?? item.maMh ?? item.maMon ?? item.subjectCode ?? '').trim();
+    let rawClassCode = String(item.classCode ?? item.maLopHocPhan ?? item.maLhp ?? item.maLop ?? '').trim();
+    
+    if (isHeaderOrNoiseString(rawCourseCode)) rawCourseCode = '';
+    if (isHeaderOrNoiseString(rawClassCode)) rawClassCode = '';
+
+    let courseCode = healCourseCode(rawCourseCode);
+    let classCode = rawClassCode;
+
+    if (!courseCode && !classCode) {
+      // Try to extract code from courseName if formatted like "COMP1017 - Cấu trúc dữ liệu"
+      const match = courseName.match(/^([A-Z]{2,6}\d{3,5})/i);
+      if (match) {
+        courseCode = healCourseCode(match[1]);
+      } else {
+        // Reject if no identifiable course code
+        continue;
+      }
+    }
+
+    if (!courseCode && classCode) {
+      const codeMatch = classCode.match(/([A-Z]{2,6}\d{3,5})/i);
+      courseCode = codeMatch ? healCourseCode(codeMatch[1]) : classCode;
+    }
+
+    const rawGroup = String(item.group ?? item.nhom ?? item.nhomTh ?? item.to ?? item.classGroup ?? 'Lớp 01').trim();
+    if (!classCode) {
+      const groupSuffix = rawGroup.replace(/[^\d]/g, '').padStart(2, '0') || '01';
+      classCode = `2511${courseCode}${groupSuffix}`;
+    }
+
+    // 3. Day of week (MUST BE 2..8)
+    let day = item.dayOfWeek ?? item.thu ?? item.day ?? item.thuHoc ?? null;
     if (typeof day === 'string') {
       const lower = day.toLowerCase().trim();
-      if (lower.includes('hai') || lower === '2' || lower.includes('t2') || lower.includes('thứ 2')) day = 2;
-      else if (lower.includes('ba') || lower === '3' || lower.includes('t3') || lower.includes('thứ 3')) day = 3;
-      else if (lower.includes('tư') || lower.includes('tu') || lower.includes('bon') || lower === '4' || lower.includes('t4') || lower.includes('thứ 4')) day = 4;
-      else if (lower.includes('năm') || lower.includes('nam') || lower === '5' || lower.includes('t5') || lower.includes('thứ 5')) day = 5;
-      else if (lower.includes('sáu') || lower.includes('sau') || lower === '6' || lower.includes('t6') || lower.includes('thứ 6')) day = 6;
-      else if (lower.includes('bảy') || lower.includes('bay') || lower === '7' || lower.includes('t7') || lower.includes('thứ 7')) day = 7;
-      else if (lower.includes('nhật') || lower.includes('nhat') || lower.includes('cn') || lower === '8' || lower === '1' || lower.includes('chủ nhật')) day = 8;
-      else day = 2;
+      if (lower.includes('hai') || lower === '2' || lower.includes('t2') || lower.includes('thứ 2') || lower.includes('thu 2') || lower.includes('mon')) day = 2;
+      else if (lower.includes('ba') || lower === '3' || lower.includes('t3') || lower.includes('thứ 3') || lower.includes('thu 3') || lower.includes('tue')) day = 3;
+      else if (lower.includes('tư') || lower.includes('tu') || lower.includes('bon') || lower === '4' || lower.includes('t4') || lower.includes('thứ 4') || lower.includes('thu 4') || lower.includes('wed')) day = 4;
+      else if (lower.includes('năm') || lower.includes('nam') || lower === '5' || lower.includes('t5') || lower.includes('thứ 5') || lower.includes('thu 5') || lower.includes('thu')) day = 5;
+      else if (lower.includes('sáu') || lower.includes('sau') || lower === '6' || lower.includes('t6') || lower.includes('thứ 6') || lower.includes('thu 6') || lower.includes('fri')) day = 6;
+      else if (lower.includes('bảy') || lower.includes('bay') || lower === '7' || lower.includes('t7') || lower.includes('thứ 7') || lower.includes('thu 7') || lower.includes('sat')) day = 7;
+      else if (lower.includes('nhật') || lower.includes('nhat') || lower.includes('cn') || lower === '8' || lower === '1' || lower.includes('chủ nhật') || lower.includes('chu nhat') || lower.includes('sun')) day = 8;
+      else day = null;
+    }
+    const dayNum = Number(day);
+    if (!dayNum || isNaN(dayNum) || dayNum < 2 || dayNum > 8) {
+      continue; // Filter out rows with missing or invalid day
     }
 
-    let start = Number(item.startPeriod ?? item.tietBatDau ?? item.tietBd ?? item.tiet_bd ?? item.tietStart ?? 1) || 1;
-    let end = Number(item.endPeriod ?? item.tietKetThuc ?? item.tietKt ?? item.tiet_kt ?? item.tietEnd ?? (start + (Number(item.soTiet ?? item.periodCount ?? item.so_tiet) || 3) - 1)) || (start + 2);
-    if (start < 1) start = 1;
-    if (start > 12) start = 12;
-    if (end < start) end = start;
-    if (end > 12) end = 12;
+    // 4. Periods (MUST BE 1..12 and start <= end)
+    let start = Number(item.startPeriod ?? item.tietBatDau ?? item.tietBd ?? item.tiet_bd ?? item.tietStart ?? 0);
+    let end = Number(item.endPeriod ?? item.tietKetThuc ?? item.tietKt ?? item.tiet_kt ?? item.tietEnd ?? 0);
 
-    const courseCode = String(item.courseCode ?? item.maHocPhan ?? item.maHp ?? item.maMh ?? item.maMon ?? item.subjectCode ?? `HP_${idx + 1}`).trim();
-    const courseName = String(item.courseName ?? item.tenHocPhan ?? item.tenHp ?? item.tenMh ?? item.tenMon ?? item.subjectName ?? courseCode).trim();
-    const rawGroup = String(item.group ?? item.nhom ?? item.nhomTh ?? item.to ?? item.classGroup ?? 'Lớp 01').trim();
-    const classCode = String(item.classCode ?? item.maLopHocPhan ?? item.maLhp ?? item.maLop ?? `${courseCode}_${rawGroup}`).trim();
-    
+    // If period is combined string e.g. "1-3" or "7 -> 9"
+    const periodCombined = String(item.periodCombined ?? item.tietHoc ?? item.tiet ?? '').trim();
+    if ((!start || !end) && periodCombined) {
+      const matchPeriod = periodCombined.match(/(\d{1,2})\s*[-–—>to]+\s*(\d{1,2})/i);
+      if (matchPeriod) {
+        start = parseInt(matchPeriod[1], 10);
+        end = parseInt(matchPeriod[2], 10);
+      }
+    }
+
+    if (!start || isNaN(start) || start < 1 || start > 12) {
+      continue; // Filter out rows with invalid start period
+    }
+    if (!end || isNaN(end) || end < start || end > 12) {
+      end = Math.min(12, start + 2); // Default to 3 periods if valid start
+    }
+    if (end - start + 1 > 4) {
+      end = start + 2; // Capping to 3 periods (typical session duration)
+    }
+
+    // 5. Lecturer (MUST BE PRESENT & VALID)
+    const rawLecturer = item.lecturer ?? item.giangVien ?? item.cbgd ?? item.canBoGiangDay ?? item.hoTenGv ?? item.gv ?? '';
+    const lecturer = cleanLecturerName(rawLecturer);
+    if (!lecturer) {
+      continue; // Strictly filter out courses with missing lecturer
+    }
+
+    // 6. Room (MUST BE PRESENT & VALID)
+    const rawRoom = item.room ?? item.phongHoc ?? item.phongMay ?? item.lab ?? item.phong ?? '';
+    const room = cleanRoomName(rawRoom);
+    if (!room) {
+      continue; // Strictly filter out courses with missing room
+    }
+
+    // Class type detection
     const rawType = String(item.classType ?? item.loaiHocPhan ?? item.loaiLhp ?? item.loaiLop ?? '').toUpperCase();
-    const rawRoom = String(item.room ?? item.phongHoc ?? item.phongMay ?? item.lab ?? item.phong ?? '').trim();
-    const isTH = item.isLab === true || rawType.includes('TH') || rawType.includes('LAB') || rawGroup.toUpperCase().includes('TH') || classCode.toUpperCase().includes('TH') || classCode.toUpperCase().includes('LAB') || rawRoom.toUpperCase().includes('LAB') || rawRoom.toUpperCase().includes('PM');
+    const isTH = item.isLab === true || rawType.includes('TH') || rawType.includes('LAB') || rawGroup.toUpperCase().includes('TH') || classCode.toUpperCase().includes('TH') || classCode.toUpperCase().includes('LAB') || room.toUpperCase().includes('LAB') || room.toUpperCase().includes('PM');
     const classType = isTH ? 'TH' : 'LT';
     const group = rawGroup || (classType === 'TH' ? 'Nhóm TH 01' : 'Lớp 01');
-    
-    let lecturer = String(item.lecturer ?? item.giangVien ?? item.cbgd ?? item.canBoGiangDay ?? item.hoTenGv ?? item.gv ?? '').trim();
-    if (!lecturer || lecturer === '-' || lecturer === '--' || lecturer.toLowerCase() === 'null' || lecturer.toLowerCase() === 'undefined') {
-      lecturer = 'Chưa phân công';
-    }
 
-    let room = rawRoom;
-    if (!room || room === '-' || room === '--' || room.toLowerCase() === 'null' || room.toLowerCase() === 'undefined') {
-      room = 'Chưa xếp phòng';
-    }
-
-    const weeks = String(item.weeks ?? item.tuanHoc ?? item.tuan ?? '1-15').trim();
+    const weeks = String(item.weeks ?? item.tuanHoc ?? item.tuan ?? '1-15').trim() || '1-15';
     const sourceFile = item.sourceFile || defaultSourceFile || undefined;
 
-    return {
+    // Deduplication key
+    const uniqueKey = `${courseCode}__${classCode}__${dayNum}__${start}__${end}`;
+    if (seenKey.has(uniqueKey)) continue;
+    seenKey.add(uniqueKey);
+
+    results.push({
+      id: item.id || `sec_${courseCode}_${classCode}_${dayNum}_${start}_${idx + 1}`,
+      stt: item.stt || results.length + 1,
       courseCode,
       courseName,
       classCode,
       classType,
       group,
       lecturer,
-      dayOfWeek: Number(day) || 2,
+      dayOfWeek: dayNum,
       startPeriod: start,
       endPeriod: end,
       room,
-      weeks: weeks || '1-15',
+      weeks,
+      credits: Number(item.credits ?? item.soTinChi ?? item.soTc) || 3,
       sourceFile
-    };
-  });
+    });
+  }
+
+  return results;
 }
 
+/**
+ * Strict normalizer & validator for personal schedule items.
+ * Strictly verifies all fields (lecturer, room, time, subject name, class code).
+ */
 function normalizePersonalSchedule(rawList: any[]): any[] {
   if (!Array.isArray(rawList)) return [];
-  const palette = ['blue', 'emerald', 'indigo', 'purple', 'amber', 'rose'];
-  return rawList.map((item, idx) => {
-    let day = Number(item.dayOfWeek ?? item.thu ?? 2);
-    if (day < 2 || day > 8) day = 2;
+  const palette = ['indigo', 'blue', 'emerald', 'teal', 'purple', 'amber', 'rose', 'cyan'];
+  
+  // Use normalizeExtractedSections for unified strict verification
+  const validatedSections = normalizeExtractedSections(rawList);
 
-    let start = Number(item.startPeriod ?? item.tietBatDau ?? 1);
-    let end = Number(item.endPeriod ?? item.tietKetThuc ?? start + 2);
-    if (start < 1) start = 1;
-    if (start > 12) start = 12;
-    if (end < start) end = start;
-    if (end > 12) end = 12;
-
-    return {
-      id: item.id || `sch-${Date.now()}-${idx}`,
-      subjectName: String(item.subjectName || item.courseName || item.tenMon || 'Môn học').trim(),
-      subjectCode: String(item.subjectCode || item.courseCode || item.maMon || 'COMP1000').trim(),
-      dayOfWeek: day,
-      startPeriod: start,
-      endPeriod: end,
-      room: String(item.room || item.phongHoc || 'Chưa xếp phòng').trim(),
-      lecturer: String(item.lecturer || item.giangVien || 'Chưa phân công').trim(),
-      classGroup: String(item.classGroup || item.group || item.nhom || '').trim(),
-      isLab: Boolean(item.isLab),
-      color: item.color || palette[idx % palette.length]
-    };
-  });
+  return validatedSections.map((sec, idx) => ({
+    id: sec.id || `sch-${Date.now()}-${idx}`,
+    subjectName: sec.courseName,
+    subjectCode: sec.courseCode,
+    classCode: sec.classCode,
+    classGroup: sec.group,
+    dayOfWeek: sec.dayOfWeek,
+    startPeriod: sec.startPeriod,
+    endPeriod: sec.endPeriod,
+    room: sec.room,
+    lecturer: sec.lecturer,
+    isLab: sec.classType === 'TH',
+    weeks: sec.weeks,
+    color: palette[idx % palette.length]
+  }));
 }
 
 /**
  * Ultra-fast call to Gemini 3.7 Flash REST API with prioritized execution
  */
 async function callGeminiRestAPI(apiKey: string, payload: any): Promise<string> {
-  // Primary target: gemini-3.7-flash with rapid fallback chain
   const candidateModels = [
     'gemini-3.7-flash',
+    'gemini-3.5-flash',
+    'gemini-3.1-pro',
     'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash'
+    'gemini-2.5-pro',
+    'gemini-2.0-flash'
   ];
 
   let lastError: any = null;
@@ -206,8 +379,8 @@ async function callGeminiRestAPI(apiKey: string, payload: any): Promise<string> 
       const errMsg = data?.error?.message || `HTTP ${response.status} from ${model}`;
       lastError = new Error(errMsg);
       
-      // If quota or not found, try next model immediately
-      if (response.status === 404 || response.status === 429) {
+      // If quota or not found, try next candidate model
+      if (response.status === 404 || response.status === 429 || response.status === 503) {
         continue;
       }
     } catch (err: any) {
@@ -236,7 +409,7 @@ export default async function handler(req: any, res: any) {
   if (!apiKey) {
     return res.status(500).json({ 
       success: false, 
-      error: 'Chưa cấu hình GEMINI_API_KEY trên Vercel Environment Variables.' 
+      error: 'Chưa cấu hình GEMINI_API_KEY trên môi trường máy chủ. Vui lòng thiết lập biến môi trường GEMINI_API_KEY.' 
     });
   }
 
@@ -249,25 +422,38 @@ export default async function handler(req: any, res: any) {
       const fileData = fileBase64 || imageBase64;
       const detectedMimeType = mimeType || 'image/jpeg';
 
-      const systemInstruction = `Bạn là Trợ lý Vision trích xuất thời khóa biểu cá nhân của sinh viên.
-Hãy đọc ảnh/dữ liệu và trả về DUY NHẤT một mảng JSON các môn học theo schema:
+      const systemInstruction = `Bạn là Chuyên gia Vision & Trích xuất Dữ liệu Thời khóa biểu cá nhân của sinh viên từ mọi định dạng: Ảnh chụp màn hình cổng đào tạo (daotao, UIS, edusoft), bảng lưới ma trận tuần (Weekly Matrix Grid), phiếu đăng ký môn học (PDF/Ảnh), ảnh chụp điện thoại.
+
+QUY TẮC TRÍCH XUẤT CHÍNH XÁC 100%:
+1. DẠNG LƯỚI TUẦN (Weekly Matrix Grid): Đọc từng ô học phần theo Cột (Thứ 2 đến Thứ 7, Chủ Nhật) và Hàng (Tiết 1-12 hoặc Buổi Sáng/Chiều/Tối).
+   - Thứ: 2 (Thứ Hai), 3 (Thứ Ba), 4 (Thứ Tư), 5 (Thứ Năm), 6 (Thứ Sáu), 7 (Thứ Bảy), 8 (Chủ Nhật).
+   - Tiết học: Trích xuất chính xác startPeriod (1-12) và endPeriod (1-12). Nếu TKB ghi theo giờ (vd: 07:00-09:30 -> Tiết 1-3; 13:00-15:30 -> Tiết 7-9), hãy quy đổi chính xác.
+2. DẠNG DANH SÁCH / BẢNG TỔNG HỢP: Đọc từng dòng môn học, lấy đầy đủ thông tin:
+   - Tên môn học (subjectName): Tên đầy đủ (ví dụ: "Cơ sở dữ liệu", "Kiến trúc máy tính").
+   - Mã học phần (subjectCode): Mã học phần (ví dụ: "COMP1017", "MATH1001").
+   - Mã lớp học phần (classCode): Mã lớp cụ thể (ví dụ: "2511COMP101701").
+   - Phòng học (room): Phòng thực tế (ví dụ: "D.207", "A.301", "PM3", "Online").
+   - Giảng viên (lecturer): BẮT BUỘC trích xuất họ tên và học hàm/học vị (ví dụ: "TS. Nguyễn Trần Phi Phượng", "ThS. Lê Văn A", "Thầy B").
+   - isLab: true nếu là lớp thực hành / phòng máy / lab, false nếu lý thuyết.
+3. CHỈ TRÍCH XUẤT CÁC MÔN CÓ THỰC TRONG ẢNH/TÀI LIỆU. Không tự bịa đặt môn học.
+
+SCHEMA ĐẦU RA (JSON Array thuần túy):
 [
   {
+    "subjectName": "Cơ sở dữ liệu",
+    "subjectCode": "COMP1017",
+    "classCode": "2511COMP101701",
+    "classGroup": "Lớp 01",
     "dayOfWeek": 2,
     "startPeriod": 1,
     "endPeriod": 3,
-    "subjectName": "Tên môn học",
-    "subjectCode": "Mã học phần",
-    "room": "Phòng học",
-    "lecturer": "Giảng viên",
-    "isLab": false
+    "room": "D.207",
+    "lecturer": "TS. Nguyễn Trần Phi Phượng",
+    "isLab": false,
+    "weeks": "1-15"
   }
 ]
-Quy tắc:
-- dayOfWeek: 2 (Thứ 2) đến 8 (Chủ nhật).
-- startPeriod và endPeriod: số nguyên từ 1 đến 12.
-- isLab: true nếu là tiết thực hành / phòng máy / LAB, false nếu lý thuyết.
-Chỉ trả về JSON thuần túy, không thêm bất kỳ văn bản nào khác.`;
+Chỉ trả về JSON Array.`;
 
       const parts: any[] = [];
       if (fileData) {
@@ -279,11 +465,11 @@ Chỉ trả về JSON thuần túy, không thêm bất kỳ văn bản nào khá
           }
         });
         parts.push({
-          text: 'Trích xuất toàn bộ thời khóa biểu cá nhân trong ảnh sang mảng JSON theo schema.'
+          text: 'Trích xuất toàn bộ các môn học trong ảnh thời khóa biểu này sang mảng JSON theo schema. Không thêm môn không có trong ảnh.'
         });
       } else if (textData) {
         parts.push({
-          text: `Trích xuất lịch học từ văn bản sau:\n${textData}`
+          text: `Trích xuất lịch học từ văn bản sau (chỉ trích xuất các môn có trong văn bản):\n${textData}`
         });
       } else {
         return res.status(400).json({ success: false, error: 'Thiếu dữ liệu tệp hoặc văn bản thời khóa biểu' });
@@ -295,7 +481,7 @@ Chỉ trả về JSON thuần túy, không thêm bất kỳ văn bản nào khá
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 8192,
           responseMimeType: 'application/json'
         }
       };
@@ -307,7 +493,7 @@ Chỉ trả về JSON thuần túy, không thêm bất kỳ văn bản nào khá
       return res.status(200).json({
         success: true,
         data: normalizedData,
-        message: 'Đã nhận diện thời khóa biểu cá nhân thành công'
+        message: `Đã nhận diện thành công ${normalizedData.length} môn học từ thời khóa biểu`
       });
     }
 
@@ -321,11 +507,12 @@ Chỉ trả về JSON thuần túy, không thêm bất kỳ văn bản nào khá
       const promptText = customPrompt ? `YÊU CẦU BỔ SUNG: ${customPrompt}` : '';
 
       const systemInstruction = `Bạn là chuyên gia xử lý và ghép nối dữ liệu Thời khóa biểu đại học từ tài liệu nhiều cột phân tách.
-Nhiệm vụ: Trích xuất TẤT CẢ các lớp học phần và buổi học thành JSON Array chuẩn 100%.
+NHIỆM VỤ: Trích xuất CHÍNH XÁC và DUY NHẤT các lớp học phần và buổi học có trong tài liệu được cung cấp.
+TUYỆT ĐỐI CẤM BỊA ĐẶT / SUY DIỄN: Chỉ trích xuất các mục có thực trong tài liệu. Không thêm bất kỳ môn học nào ngoài tài liệu.
 ${presetText}
 ${promptText}
 
-RÀNG BUỘC: Dùng STT hoặc Mã LHP làm khóa chính JOIN chính xác:
+RÀNG BUỘC GHÉP NỐI QUAN HỆ: Dùng STT hoặc Mã LHP làm khóa chính JOIN chính xác:
 STT, courseCode (Mã HP), classCode (Mã LHP), courseName (Tên môn), dayOfWeek (2-8, CN là 8), startPeriod (1-12), endPeriod (1-12), room (Phòng), lecturer (Giảng viên), classType ("LT" hoặc "TH"), group ("Lớp 01", "Nhóm TH 01").
 
 SCHEMA ĐẦU RA (JSON Array thuần túy):
@@ -357,7 +544,7 @@ Chỉ trả về JSON Array hợp lệ.`;
           }
         });
         parts.push({
-          text: 'Trích xuất toàn bộ tài liệu thời khóa biểu này sang JSON Array.'
+          text: 'Trích xuất chính xác các lớp học phần trong tài liệu thời khóa biểu này sang JSON Array. Không tự suy diễn môn ngoài tài liệu.'
         });
       } else if (textData) {
         parts.push({
@@ -373,7 +560,7 @@ Chỉ trả về JSON Array hợp lệ.`;
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 8192,
           responseMimeType: 'application/json'
         }
       };
@@ -385,7 +572,7 @@ Chỉ trả về JSON Array hợp lệ.`;
       return res.status(200).json({
         success: true,
         data: normalizedData,
-        message: 'Đã trích xuất thời khóa biểu thành công'
+        message: `Đã trích xuất thành công ${normalizedData.length} lớp học phần từ tài liệu`
       });
     }
 
@@ -423,7 +610,7 @@ Hãy phân tích đoạn mã nguồn (ngôn ngữ: ${language || 'C++/Python/Jav
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 4096,
           responseMimeType: 'application/json'
         }
       };

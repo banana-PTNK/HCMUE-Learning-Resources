@@ -5,12 +5,12 @@
 
 async function callGeminiRestAPI(apiKey: string, payload: any): Promise<any> {
   const candidateModels = [
+    'gemini-3.7-flash',
+    'gemini-3.5-flash',
+    'gemini-3.1-pro',
     'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
     'gemini-2.5-pro',
-    'gemini-1.5-pro',
-    'gemini-flash-latest'
+    'gemini-2.0-flash'
   ];
 
   let lastError: any = null;

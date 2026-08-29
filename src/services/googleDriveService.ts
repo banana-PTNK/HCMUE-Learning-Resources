@@ -79,7 +79,7 @@ export const listDriveFiles = async (
     throw new Error(errorData?.error?.message || `Lỗi truy vấn Google Drive: ${res.statusText}`);
   }
 
-  return await res.json();
+  return await res.json().catch(() => ({}));
 };
 
 export const createDriveFolder = async (
@@ -109,7 +109,7 @@ export const createDriveFolder = async (
     throw new Error(errorData?.error?.message || 'Không thể tạo thư mục trên Google Drive');
   }
 
-  return await res.json();
+  return await res.json().catch(() => ({}));
 };
 
 export const uploadFileToDrive = async (
@@ -182,7 +182,7 @@ export const uploadFileToDrive = async (
     throw new Error(errorData?.error?.message || 'Không thể tải file lên Google Drive');
   }
 
-  return await res.json();
+  return await res.json().catch(() => ({}));
 };
 
 export const saveTextFileToDrive = async (

@@ -1,5 +1,33 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  
+  --color-hcmue-blue: #124874;
+  --color-hcmue-navy: #124874;
+  --color-hcmue-red: #CF373D;
+  --color-hcmue-crimson: #CF373D;
+  
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+  --color-brand-950: #1e1b4b;
+  
+  --color-obsidian-950: #0b0f19;
+  --color-obsidian-900: #0e1424;
+  --color-obsidian-850: #131b2e;
+  --color-obsidian-800: #1a243b;
+  --color-obsidian-700: #090e18;
+}
+
 @custom-variant dark (&:where(.dark, :is(.dark *)));
 
 @layer base {
@@ -36,7 +64,8 @@
   }
 
   html, body {
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: 'Inter', sans-serif;
+    @apply font-sans antialiased;
     font-size: 16px;
     line-height: 1.625;
     letter-spacing: -0.015em;

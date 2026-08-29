@@ -50,6 +50,7 @@ import {
   CheckCheck
 } from 'lucide-react';
 import subjectsData from '../data/subjects.json';
+import { getRankLevel } from '../utils/rankingUtils';
 import {
   FirestoreContribution,
   fetchAllContributions,
@@ -61,7 +62,9 @@ import {
   adjustContributorFilesCount,
   addCustomContributorToLeaderboard,
   deleteContributorFromLeaderboard,
-  fetchContributorsFromFirestore
+  fetchContributorsFromFirestore,
+  subscribeToContributions,
+  subscribeToContributors
 } from '../services/contributionService';
 import {
   Announcement,
@@ -78,15 +81,11 @@ import {
 } from '../services/announcementService';
 import {
   UserFeedback,
-  fetchAllFeedbacks,
   updateFeedbackStatus,
   deleteFeedback,
-  getLocalFeedbacks,
-  FEEDBACKS_UPDATED_EVENT
+  subscribeToFeedbacks
 } from '../services/feedbackService';
 import {
-  CONTRIBUTIONS_UPDATED_EVENT,
-  CONTRIBUTORS_UPDATED_EVENT,
   getStoredContributors,
   getLocalCachedSubmissions
 } from '../utils/contributorStorage';
@@ -160,7 +159,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   // Moderation state
   const [contributions, setContributions] = useState<FirestoreContribution[]>(() => getLocalCachedSubmissions());
   const [isLoadingContribs, setIsLoadingContribs] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [actionProcessingId, setActionProcessingId] = useState<string | null>(null);
   const [moderationSubTab, setModerationSubTab] = useState<'submissions' | 'leaderboard_manage'>('submissions');
@@ -210,7 +209,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const [inlineFilesCount, setInlineFilesCount] = useState<number>(1);
 
   // Feedback State
-  const [feedbacks, setFeedbacks] = useState<UserFeedback[]>(() => getLocalFeedbacks());
+  const [feedbacks, setFeedbacks] = useState<UserFeedback[]>(() => []);
   const [isLoadingFeedbacks, setIsLoadingFeedbacks] = useState(false);
   const [feedbackFilter, setFeedbackFilter] = useState<'all' | 'unread' | 'read' | 'resolved'>('all');
   const [feedbackSearchQuery, setFeedbackSearchQuery] = useState('');
@@ -275,74 +274,24 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   ];
 
-  // Parallel Fast Data Loading
-  const loadAllAdminData = async () => {
-    setIsLoadingContribs(true);
-    setIsLoadingLeaderboard(true);
-    setIsLoadingAnnouncements(true);
-    setIsLoadingFeedbacks(true);
 
-    try {
-      const [contribsRes, leaderboardRes, annRes, feedbacksRes] = await Promise.allSettled([
-        fetchAllContributions(),
-        fetchContributorsFromFirestore(),
-        fetchAnnouncements(),
-        fetchAllFeedbacks()
-      ]);
-
-      if (contribsRes.status === 'fulfilled') {
-        setContributions(contribsRes.value);
-      }
-      if (leaderboardRes.status === 'fulfilled') {
-        setLeaderboardList(leaderboardRes.value);
-      }
-      if (annRes.status === 'fulfilled') {
-        setAnnouncements(annRes.value);
-      }
-      if (feedbacksRes.status === 'fulfilled') {
-        setFeedbacks(feedbacksRes.value);
-      }
-
-      const d = new Date();
-      setLastRefreshedAt(`${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`);
-    } catch {
-      toast.error('Lỗi kết nối', 'Không thể đồng bộ toàn bộ dữ liệu quản trị.');
-    } finally {
-      setIsLoadingContribs(false);
-      setIsLoadingLeaderboard(false);
-      setIsLoadingAnnouncements(false);
-      setIsLoadingFeedbacks(false);
-    }
-  };
 
   // Manual Trigger Refresh All with Animation & Toast
   const handleManualRefreshAll = async () => {
     setIsRefreshingAll(true);
     try {
-      const [contribsRes, leaderboardRes, annRes, feedbacksRes] = await Promise.allSettled([
-        fetchAllContributions(),
-        fetchContributorsFromFirestore(),
-        fetchAnnouncements(),
-        fetchAllFeedbacks()
-      ]);
+      // 1. Fetch non-realtime announcements in background
+      fetchAnnouncements().then((data) => {
+        setAnnouncements(data);
+      }).catch(() => {});
 
-      if (contribsRes.status === 'fulfilled') {
-        setContributions(contribsRes.value);
-      }
-      if (leaderboardRes.status === 'fulfilled') {
-        setLeaderboardList(leaderboardRes.value);
-      }
-      if (annRes.status === 'fulfilled') {
-        setAnnouncements(annRes.value);
-      }
-      if (feedbacksRes.status === 'fulfilled') {
-        setFeedbacks(feedbacksRes.value);
-      }
+      // 2. Micro delay to show brief feedback spinner animation
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
       const d = new Date();
       const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
       setLastRefreshedAt(timeStr);
-      toast.success('Đã làm mới dữ liệu!', `Cập nhật thành công lúc ${timeStr}`);
+      toast.success('Đã làm mới dữ liệu!', `Dữ liệu thời gian thực được tự động cập nhật lúc ${timeStr}`);
     } catch (err: any) {
       toast.error('Lỗi làm mới', err?.message || 'Không thể cập nhật dữ liệu quản trị.');
     } finally {
@@ -418,37 +367,33 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const loadFeedbacks = async () => {
-    setIsLoadingFeedbacks(true);
-    try {
-      const data = await fetchAllFeedbacks();
-      setFeedbacks(data);
-    } catch {
-      toast.error('Lỗi tải feedback', 'Không thể tải danh sách góp ý của người dùng.');
-    } finally {
-      setIsLoadingFeedbacks(false);
-    }
-  };
-
   useEffect(() => {
     if (isAuthenticated) {
-      loadAllAdminData();
+      loadAnnouncements();
 
-      const handleContribUpdate = () => loadContributions();
+      // Realtime subscription to contributions (no localStorage)
+      setIsLoadingContribs(true);
+      const unsubscribeContribs = subscribeToContributions((data) => {
+        setContributions(data);
+        setIsLoadingContribs(false);
+      });
+
+      // Realtime subscription to leaderboard (no localStorage)
+      setIsLoadingLeaderboard(true);
+      const unsubscribeLeaderboard = subscribeToContributors((data) => {
+        setLeaderboardList(data);
+        setIsLoadingLeaderboard(false);
+      });
+
+      // Realtime subscription to feedbacks (no localStorage)
+      setIsLoadingFeedbacks(true);
+      const unsubscribeFeedbacks = subscribeToFeedbacks((data) => {
+        setFeedbacks(data);
+        setIsLoadingFeedbacks(false);
+      });
+
       const handleAnnUpdate = () => loadAnnouncements();
-      const handleFeedbackUpdate = () => loadFeedbacks();
-      const handleLeaderboardUpdate = (e: any) => {
-        if (e?.detail) {
-          setLeaderboardList(e.detail);
-        } else {
-          loadLeaderboard();
-        }
-      };
-
-      window.addEventListener(CONTRIBUTIONS_UPDATED_EVENT, handleContribUpdate);
       window.addEventListener(ANNOUNCEMENTS_UPDATED_EVENT, handleAnnUpdate);
-      window.addEventListener(FEEDBACKS_UPDATED_EVENT, handleFeedbackUpdate);
-      window.addEventListener(CONTRIBUTORS_UPDATED_EVENT, handleLeaderboardUpdate);
 
       // Realtime subscription to error logs
       const unsubscribeErrorLogger = errorLogger.subscribe((latestLogs) => {
@@ -456,10 +401,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
       });
 
       return () => {
-        window.removeEventListener(CONTRIBUTIONS_UPDATED_EVENT, handleContribUpdate);
         window.removeEventListener(ANNOUNCEMENTS_UPDATED_EVENT, handleAnnUpdate);
-        window.removeEventListener(FEEDBACKS_UPDATED_EVENT, handleFeedbackUpdate);
-        window.removeEventListener(CONTRIBUTORS_UPDATED_EVENT, handleLeaderboardUpdate);
+        unsubscribeContribs();
+        unsubscribeLeaderboard();
+        unsubscribeFeedbacks();
         unsubscribeErrorLogger();
       };
     }
@@ -521,15 +466,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
   const handleDeleteFeedback = async (id: string) => {
     if (!window.confirm('Bạn có chắc chắn muốn xóa phản hồi này?')) return;
-    setFeedbackProcessingId(id);
     try {
-      await deleteFeedback(id);
-      toast.info('Đã xóa phản hồi', 'Đã loại bỏ góp ý khỏi hệ thống.');
+      // 1. Optimistic update - remove immediately
       setFeedbacks((prev) => prev.filter((f) => f.id !== id));
+      toast.info('Đã xóa phản hồi', 'Đã loại bỏ góp ý khỏi hệ thống.');
+
+      // 2. Perform delete in background
+      deleteFeedback(id).catch((err) => {
+        console.error('Firestore delete feedback error:', err);
+        toast.error('Lỗi lưu trữ', 'Không thể đồng bộ trạng thái xóa lên máy chủ.');
+      });
     } catch {
       toast.error('Lỗi xóa', 'Không thể xóa phản hồi.');
-    } finally {
-      setFeedbackProcessingId(null);
     }
   };
 
@@ -546,18 +494,19 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
     const count = Math.max(1, filesCountToCredit);
 
     try {
-      // 1. Instant optimistic update in local state
-      setContributions((prev) =>
-        prev.map((c) => (c.id === item.id ? { ...c, status: 'approved', filesCount: count, approvedAt: new Date().toISOString() } : c))
-      );
+      // 1. Instant optimistic update in local state - remove the item completely
+      setContributions((prev) => prev.filter((c) => c.id !== item.id));
       setApproveModalItem(null);
 
-      // 2. Perform approve in Firestore and recalculate Leaderboard
-      await approveContribution(item, 'Admin Khoa CNTT', count);
-      
-      // 3. Immediately refresh local Leaderboard state
-      const updatedLeaderboard = getStoredContributors();
-      setLeaderboardList(updatedLeaderboard);
+      // 2. Perform approve in Firestore and recalculate Leaderboard in the background
+      approveContribution(item, 'Admin', count).then(() => {
+        // Immediately refresh local Leaderboard state
+        const updatedLeaderboard = getStoredContributors();
+        setLeaderboardList(updatedLeaderboard);
+      }).catch((err) => {
+        console.error('Firestore approval error:', err);
+        toast.error('Lỗi lưu trữ', 'Không thể đồng bộ trạng thái duyệt lên máy chủ.');
+      });
 
       toast.success(
         'Đã duyệt tài liệu thành công!',
@@ -615,17 +564,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
     const bodyText = `Kính gửi ${studentName},
 
-Ban Quản trị Kho học liệu CNTT (HCMUE-FIT StudyVault) xin chân thành cảm ơn bạn đã quan tâm và gửi tài liệu đóng góp cho học phần [${item.targetSubjectCode}] ${subjectName}.
+Admin Kho học liệu CNTT (HCMUE-FIT StudyVault) xin chân thành cảm ơn bạn đã quan tâm và gửi tài liệu đóng góp cho học phần [${item.targetSubjectCode}] ${subjectName}.
 
-Sau khi rà soát và kiểm duyệt, Ban Quản trị rất tiếc phải thông báo rằng tài liệu này chưa thể được phê duyệt vào kho học liệu chung với lý do:
+Sau khi rà soát và kiểm duyệt, Admin rất tiếc phải thông báo rằng tài liệu này chưa thể được phê duyệt vào kho học liệu chung với lý do:
 👉 "${reasonText}"
 
-Ban Quản trị rất trân trọng tinh thần học tập, chia sẻ và cống hiến vì cộng đồng sinh viên Khoa Công nghệ Thông tin - Trường Đại học Sư phạm TP.HCM. Rất mong sẽ tiếp tục nhận được những tài liệu học tập bổ ích khác từ bạn trong tương lai!
+Admin rất trân trọng tinh thần học tập, chia sẻ và cống hiến vì cộng đồng sinh viên Khoa Công nghệ Thông tin - Trường Đại học Sư phạm TP.HCM. Rất mong sẽ tiếp tục nhận được những tài liệu học tập bổ ích khác từ bạn trong tương lai!
 
 Chúc bạn luôn có những kỳ học thành công và đạt kết quả xuất sắc!
 
 Trân trọng,
-Ban Quản trị HCMUE-FIT StudyVault
+Admin HCMUE-FIT StudyVault
 Khoa Công nghệ Thông tin - Trường ĐH Sư phạm TP.HCM
 Website: https://fit-hcmue-studyvault.web.app`;
 
@@ -647,13 +596,14 @@ Website: https://fit-hcmue-studyvault.web.app`;
     setActionProcessingId(item.id);
 
     try {
-      // 1. Optimistic update
-      setContributions((prev) =>
-        prev.map((c) => (c.id === item.id ? { ...c, status: 'rejected', adminFeedback: reasonText } : c))
-      );
+      // 1. Optimistic update - remove the item completely
+      setContributions((prev) => prev.filter((c) => c.id !== item.id));
 
-      // 2. Reject in backend
-      await rejectContribution(item.id, reasonText);
+      // 2. Reject in backend in the background
+      rejectContribution(item.id, reasonText).catch((err) => {
+        console.error('Firestore rejection error:', err);
+        toast.error('Lỗi lưu trữ', 'Không thể đồng bộ trạng thái từ chối lên máy chủ.');
+      });
 
       // 3. Open mailto client if requested and email exists
       if (sendMailClient && toEmail) {
@@ -661,7 +611,7 @@ Website: https://fit-hcmue-studyvault.web.app`;
         window.location.href = mailtoUrl;
       }
 
-      toast.info('Đã từ chối tài liệu', 'Đã lưu lý do phản hồi và cập nhật trạng thái.');
+      toast.info('Đã từ chối tài liệu', 'Đã lưu lý do phản hồi.');
       setRejectModalData(null);
     } catch {
       toast.error('Lỗi xử lý', 'Không thể cập nhật trạng thái từ chối.');
@@ -783,10 +733,15 @@ Website: https://fit-hcmue-studyvault.web.app`;
   const handleDeleteContributor = async (studentIdOrId: string, name: string) => {
     if (!window.confirm(`Bạn có chắc chắn muốn xóa ${name} khỏi Bảng Xếp Hạng?`)) return;
     try {
-      await deleteContributorFromLeaderboard(studentIdOrId);
-      const updatedList = getStoredContributors();
-      setLeaderboardList(updatedList);
+      // 1. Optimistic update
+      setLeaderboardList((prev) => prev.filter((c) => c.studentId !== studentIdOrId && c.id !== studentIdOrId));
       toast.info('Đã xóa', `Đã xóa ${name} khỏi BXH`);
+
+      // 2. Delete in background
+      deleteContributorFromLeaderboard(studentIdOrId).catch((err) => {
+        console.error('Firestore delete contributor error:', err);
+        toast.error('Lỗi lưu trữ', 'Không thể đồng bộ trạng thái xóa lên máy chủ.');
+      });
     } catch {
       toast.error('Lỗi xóa', 'Không thể xóa sinh viên');
     }
@@ -1450,11 +1405,16 @@ Website: https://fit-hcmue-studyvault.web.app`;
                               <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
                                 <span>
-                                  {typeof item.createdAt === 'string'
-                                    ? item.createdAt
-                                    : (item.createdAt as any)?.toDate
-                                    ? (item.createdAt as any).toDate().toLocaleString('vi-VN')
-                                    : new Date(item.createdAt).toLocaleString('vi-VN')}
+                                  {(() => {
+                                    if (!item.createdAt) return '';
+                                    let d: Date;
+                                    if (typeof item.createdAt === 'object' && (item.createdAt as any)?.toDate) {
+                                      d = (item.createdAt as any).toDate();
+                                    } else {
+                                      d = new Date(item.createdAt);
+                                    }
+                                    return isNaN(d.getTime()) ? '' : d.toLocaleString('vi-VN');
+                                  })()}
                                 </span>
                               </span>
                             )}
@@ -1777,7 +1737,17 @@ Website: https://fit-hcmue-studyvault.web.app`;
                         {fb.title || 'Báo lỗi hệ thống'}
                       </span>
                       <span className="text-xs text-slate-400 font-mono">
-                        {fb.createdAt || fb.date}
+                        {(() => {
+                          const dateVal = fb.createdAt || fb.date;
+                          if (!dateVal) return '';
+                          let d: Date;
+                          if (typeof dateVal === 'object' && (dateVal as any)?.toDate) {
+                            d = (dateVal as any).toDate();
+                          } else {
+                            d = new Date(dateVal);
+                          }
+                          return isNaN(d.getTime()) ? '' : d.toLocaleString('vi-VN');
+                        })()}
                       </span>
                       <span
                         className={`px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -2126,11 +2096,15 @@ Website: https://fit-hcmue-studyvault.web.app`;
                     type="number"
                     min={0}
                     value={editingContributor ? editingContributor.filesCount : newContributorForm.filesCount}
-                    onChange={(e) =>
-                      editingContributor
-                        ? setEditingContributor({ ...editingContributor, filesCount: parseInt(e.target.value) || 0 })
-                        : setNewContributorForm({ ...newContributorForm, filesCount: parseInt(e.target.value) || 0 })
-                    }
+                    onChange={(e) => {
+                      const count = parseInt(e.target.value) || 0;
+                      const levelRank = getRankLevel(count).rank;
+                      if (editingContributor) {
+                        setEditingContributor({ ...editingContributor, filesCount: count, badgeTitle: levelRank });
+                      } else {
+                        setNewContributorForm({ ...newContributorForm, filesCount: count, badgeTitle: levelRank });
+                      }
+                    }}
                     className="w-full p-2.5 rounded-xl bg-slate-50 dark:bg-[#0c1220] border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-white focus:outline-hidden focus:border-indigo-500"
                   />
                 </div>

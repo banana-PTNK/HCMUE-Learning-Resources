@@ -29,11 +29,10 @@ import { useGoogleSheet } from '../context/GoogleSheetContext';
 import { OFFICIAL_CONTRIBUTION_FORM_URL } from '../config/driveLinks';
 import {
   submitContributionToFirestore,
-  fetchContributorsFromFirestore
+  subscribeToContributors
 } from '../services/contributionService';
 import {
-  getStoredContributors,
-  CONTRIBUTORS_UPDATED_EVENT
+  getStoredContributors
 } from '../utils/contributorStorage';
 import { sanitizeAndValidateResourceUrl } from '../utils/contributionUtils';
 
@@ -77,24 +76,14 @@ export const ContributePage: React.FC<ContributePageProps> = ({
   const [contributors, setContributors] = useState<Contributor[]>(() => getStoredContributors());
 
   useEffect(() => {
-    // Initial fetch from firestore if available
-    fetchContributorsFromFirestore().then((list) => {
+    // Subscribe to real-time leaderboard changes
+    const unsubscribe = subscribeToContributors((list) => {
       if (list && list.length > 0) {
         setContributors(list);
       }
     });
 
-    // Listen for live updates
-    const handleUpdate = (e: any) => {
-      if (e.detail) {
-        setContributors(e.detail);
-      } else {
-        setContributors(getStoredContributors());
-      }
-    };
-
-    window.addEventListener(CONTRIBUTORS_UPDATED_EVENT, handleUpdate);
-    return () => window.removeEventListener(CONTRIBUTORS_UPDATED_EVENT, handleUpdate);
+    return () => unsubscribe();
   }, []);
 
   const handleOpenGoogleForm = () => {

@@ -679,16 +679,16 @@ export const InteractiveTimetableMatrix: React.FC<InteractiveTimetableMatrixProp
                 HCMUE
               </div>
               <div>
-                <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white tracking-wide">
+                <h3 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-wide">
                   TRƯỜNG ĐẠI HỌC SƯ PHẠM TP. HỒ CHÍ MINH
                 </h3>
-                <p className="text-xs text-blue-700 dark:text-sky-400 font-bold">
+                <p className="text-xs sm:text-sm text-blue-700 dark:text-sky-400 font-black">
                   Khoa Công nghệ Thông tin — Thời khóa biểu học phần sinh viên
                 </p>
               </div>
             </div>
-            <div className="text-left sm:text-right text-xs text-slate-600 dark:text-slate-400 font-mono">
-              <div>Tổng số: <span className="text-blue-700 dark:text-sky-400 font-extrabold">{activeSections.length} buổi học/tuần</span></div>
+            <div className="text-left sm:text-right text-xs sm:text-sm text-slate-600 dark:text-slate-400 font-mono">
+              <div>Tổng số: <span className="text-blue-700 dark:text-sky-400 font-black">{activeSections.length} buổi học/tuần</span></div>
             </div>
           </div>
 
@@ -704,7 +704,7 @@ export const InteractiveTimetableMatrix: React.FC<InteractiveTimetableMatrixProp
                     key={day}
                     className="py-3.5 px-2 text-center border-r border-slate-400/80 dark:border-slate-700/80 last:border-r-0 select-none text-white bg-transparent"
                   >
-                    <div className="font-extrabold text-xs sm:text-sm uppercase tracking-wider drop-shadow-xs">
+                    <div className="font-black text-xs sm:text-sm uppercase tracking-wider drop-shadow-xs">
                       {day === 8 ? 'Chủ Nhật' : `Thứ ${day}`}
                     </div>
                   </th>
@@ -723,7 +723,7 @@ export const InteractiveTimetableMatrix: React.FC<InteractiveTimetableMatrixProp
                       {/* Period Column: Frosted Mist Slate (#E2E8F0 / #F1F5F9), bold black text */}
                       <td className="p-2 text-center bg-[#E2E8F0] dark:bg-[#111827] border-r-2 border-slate-400 dark:border-slate-700 select-none w-16 sm:w-20">
                         <div className="flex flex-col items-center justify-center">
-                          <div className="text-slate-900 dark:text-slate-100 font-mono font-black text-sm sm:text-base">
+                          <div className="text-slate-900 dark:text-slate-100 font-mono font-black text-base sm:text-lg">
                             {period}
                           </div>
                         </div>
@@ -775,10 +775,10 @@ export const InteractiveTimetableMatrix: React.FC<InteractiveTimetableMatrixProp
                                       }`}
                                     >
                                       {/* Tên môn học: Tinted high contrast title text centered */}
-                                      <div className={`w-full text-center font-black text-sm md:text-base leading-snug tracking-normal break-words hyphens-none ${theme.titleTextLight} ${theme.titleTextDark}`}>
+                                      <div className={`w-full text-center font-black text-base md:text-lg leading-snug tracking-normal break-words hyphens-none ${theme.titleTextLight} ${theme.titleTextDark}`}>
                                         {sec.courseName}
                                         {/* Mã môn */}
-                                        <span className={`block text-center font-mono text-xs font-bold mt-1 ${theme.codeTextClasses}`}>
+                                        <span className={`block text-center font-mono text-sm font-bold mt-1 ${theme.codeTextClasses}`}>
                                           ({sec.courseCode || extractBaseCourseCode(sec.classCode)})
                                         </span>
                                       </div>
@@ -786,19 +786,19 @@ export const InteractiveTimetableMatrix: React.FC<InteractiveTimetableMatrixProp
                                       {/* Chi tiết học phần: Căn giữa toàn bộ */}
                                       <div className="w-full mt-2.5 space-y-1 leading-tight text-center flex flex-col items-center justify-center">
                                         {/* Buổi & Giờ học */}
-                                        <div className={`text-[11px] sm:text-xs font-semibold opacity-90 text-center ${theme.detailsTextLight} ${theme.detailsTextDark}`}>
+                                        <div className={`text-xs sm:text-sm font-semibold opacity-90 text-center ${theme.detailsTextLight} ${theme.detailsTextDark}`}>
                                           {sessionStr} • {timeRangeStr}
                                         </div>
                                         {/* Nhóm & Lớp học phần */}
-                                        <div className={`text-[11px] sm:text-xs font-semibold opacity-90 text-center ${theme.detailsTextLight} ${theme.detailsTextDark}`}>
+                                        <div className={`text-xs sm:text-sm font-semibold opacity-90 text-center ${theme.detailsTextLight} ${theme.detailsTextDark}`}>
                                           Nhóm: {sec.group || '01'} • <span className="font-mono font-bold">{sec.classCode}</span>
                                         </div>
                                         
                                         {/* Phòng học & Giảng viên: Chữ đậm, dễ nhìn */}
-                                        <div className={`text-xs sm:text-sm font-bold mt-1 text-center ${theme.detailsTextLight} ${theme.detailsTextDark}`}>
+                                        <div className={`text-sm sm:text-base font-black mt-1 text-center ${theme.detailsTextLight} ${theme.detailsTextDark}`}>
                                           Phòng: {roomDisplay}
                                         </div>
-                                        <div className={`text-xs sm:text-sm font-bold text-center ${theme.detailsTextLight} ${theme.detailsTextDark}`}>
+                                        <div className={`text-sm sm:text-base font-black text-center ${theme.detailsTextLight} ${theme.detailsTextDark}`}>
                                           GV: {sec.lecturer || 'Khoa CNTT'}
                                         </div>
 
