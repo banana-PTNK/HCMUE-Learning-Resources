@@ -635,6 +635,7 @@
 //   }
 // }
 
+
 /**
  * Vercel Serverless Function: /api/ai
  * Ultra-Fast AI Assistant Engine powered by Gemini Flash / Pro
@@ -643,6 +644,10 @@
  * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
  * - EXPLAIN_CODE (Big-O complexity, dry-run simulation & optimizations)
  */
+
+export const config = {
+  maxDuration: 60, // Kéo dài thời gian thực thi lên tối đa 60 giây trên Vercel
+};
 
 function parseJsonArraySafely(rawText: string): any[] {
   if (!rawText || typeof rawText !== 'string') return [];
@@ -722,7 +727,7 @@ function cleanLecturerName(raw: any): string {
     .replace(/[-–—:;,.]+$/, '')
     .replace(/\s+/g, ' ')
     .trim();
-  
+
   // Reject garbage/placeholder words
   const lower = str.toLowerCase();
   if (
@@ -754,7 +759,7 @@ function cleanRoomName(raw: any): string {
     .replace(/[-–—:;,.]+$/, '')
     .replace(/\s+/g, ' ')
     .trim();
-  
+
   const lower = str.toLowerCase();
   if (
     !str ||
@@ -833,7 +838,7 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
     // 2. Course Code & Class Code
     let rawCourseCode = String(item.courseCode ?? item.maHocPhan ?? item.maHp ?? item.maMh ?? item.maMon ?? item.subjectCode ?? '').trim();
     let rawClassCode = String(item.classCode ?? item.maLopHocPhan ?? item.maLhp ?? item.maLop ?? '').trim();
-    
+
     if (isHeaderOrNoiseString(rawCourseCode)) rawCourseCode = '';
     if (isHeaderOrNoiseString(rawClassCode)) rawClassCode = '';
 
@@ -841,7 +846,6 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
     let classCode = rawClassCode;
 
     if (!courseCode && !classCode) {
-      // Try to extract code from courseName if formatted like "COMP1017 - Cấu trúc dữ liệu"
       const match = courseName.match(/^([A-Z]{2,6}\d{3,5})/i);
       if (match) {
         courseCode = healCourseCode(match[1]);
@@ -1008,7 +1012,7 @@ async function callGeminiRestAPI(apiKey: string, payload: any): Promise<string> 
 
       const errMsg = data?.error?.message || `HTTP ${response.status} from ${model}`;
       lastError = new Error(errMsg);
-      
+
       if (response.status === 404 || response.status === 429 || response.status === 503) {
         continue;
       }
@@ -1034,11 +1038,15 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ success: false, error: 'Method Not Allowed' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  const apiKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.VITE_GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY;
+
   if (!apiKey) {
-    return res.status(500).json({ 
-      success: false, 
-      error: 'Chưa cấu hình GEMINI_API_KEY trên môi trường máy chủ.' 
+    return res.status(500).json({
+      success: false,
+      error: 'Chưa cấu hình GEMINI_API_KEY trên môi trường máy chủ. Vui lòng thiết lập biến môi trường GEMINI_API_KEY.'
     });
   }
 
@@ -1046,10 +1054,10 @@ export default async function handler(req: any, res: any) {
     const body = req.body || {};
     const rawAction = body.action || '';
     const action = rawAction.toUpperCase();
-    const payload = body.payload || body; // Hỗ trợ cả 2 cách gửi { action, payload: {...} } hoặc gửi trực tiếp { action, code, ... }
+    const payload = body.payload || body;
 
     // =========================================================================
-    // 1. PERSONAL SCHEDULE VISION EXTRACTION (PARSE_SCHEDULE)
+    // 1. PERSONAL STUDENT SCHEDULE VISION EXTRACTION (PARSE_SCHEDULE)
     // =========================================================================
     if (action === 'PARSE_SCHEDULE' || rawAction === 'parseSchedule') {
       const { imageBase64, fileBase64, mimeType, textData } = payload || {};
@@ -1114,7 +1122,10 @@ SCHEMA ĐẦU RA (JSON Array thuần túy):
           temperature: 0.1,
           topP: 0.8,
           maxOutputTokens: 8192,
-          responseMimeType: 'application/json'
+          responseMimeType: 'application/json',
+          thinkingConfig: {
+            thinkingBudget: 0
+          }
         }
       };
 
@@ -1194,7 +1205,10 @@ SCHEMA ĐẦU RA (JSON Array thuần túy):
           temperature: 0.1,
           topP: 0.8,
           maxOutputTokens: 8192,
-          responseMimeType: 'application/json'
+          responseMimeType: 'application/json',
+          thinkingConfig: {
+            thinkingBudget: 0
+          }
         }
       };
 
@@ -1271,8 +1285,11 @@ BẮT BUỘC TRẢ VỀ DUY NHẤT MỘT JSON OBJECT THEO SCHEMA:
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 4096,
-          responseMimeType: 'application/json'
+          maxOutputTokens: 2500,
+          responseMimeType: 'application/json',
+          thinkingConfig: {
+            thinkingBudget: 0
+          }
         }
       };
 
@@ -1295,6 +1312,5 @@ BẮT BUỘC TRẢ VỀ DUY NHẤT MỘT JSON OBJECT THEO SCHEMA:
     });
   }
 }
-
 
 
