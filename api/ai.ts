@@ -645,6 +645,11 @@
  * - EXPLAIN_CODE (Compiler-grade Big-O complexity & dynamic trace)
  */
 
+/**
+ * Vercel Serverless Function: /api/ai
+ * Gemini 3.6 Flash Engine - Compiler-grade Big-O & Schedule Parser
+ */
+
 export const config = {
   maxDuration: 60,
 };
@@ -722,7 +727,7 @@ function normalizeAnalysisResult(raw: any) {
   if (!Array.isArray(rawSteps)) rawSteps = [];
   const dryRunSteps = rawSteps.map((s: any, idx: number) => ({
     step: Number(s.step || s.stepNumber || idx + 1),
-    desc: String(s.desc || s.description || s.action || s.explanation || `Bước ${idx + 1}`),
+    desc: String(s.desc || s.description || s.action || s.explanation || ("Bước " + (idx + 1))),
     variables: String(s.variables || s.vars || s.state || s.values || '')
   }));
 
@@ -833,7 +838,7 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
     const rawGroup = String(item.group ?? item.nhom ?? item.nhomTh ?? item.to ?? item.classGroup ?? 'Lớp 01').trim();
     if (!classCode) {
       const groupSuffix = rawGroup.replace(/[^\d]/g, '').padStart(2, '0') || '01';
-      classCode = `2511${courseCode}${groupSuffix}`;
+      classCode = '2511' + courseCode + groupSuffix;
     }
 
     let day = item.dayOfWeek ?? item.thu ?? item.day ?? item.thuHoc ?? null;
@@ -883,12 +888,12 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
     const weeks = String(item.weeks ?? item.tuanHoc ?? item.tuan ?? '1-15').trim() || '1-15';
     const sourceFile = item.sourceFile || defaultSourceFile || undefined;
 
-    const uniqueKey = `${courseCode}__${classCode}__${dayNum}__${start}__${end}`;
+    const uniqueKey = courseCode + '__' + classCode + '__' + dayNum + '__' + start + '__' + end;
     if (seenKey.has(uniqueKey)) continue;
     seenKey.add(uniqueKey);
 
     results.push({
-      id: item.id || `sec_${courseCode}_${classCode}_${dayNum}_${start}_${idx + 1}`,
+      id: item.id || ('sec_' + courseCode + '_' + classCode + '_' + dayNum + '_' + start + '_' + (idx + 1)),
       stt: item.stt || results.length + 1,
       courseCode,
       courseName,
@@ -915,7 +920,7 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
   const validatedSections = normalizeExtractedSections(rawList);
 
   return validatedSections.map((sec, idx) => ({
-    id: sec.id || `sch-${Date.now()}-${idx}`,
+    id: sec.id || ('sch-' + Date.now() + '-' + idx),
     subjectName: sec.courseName,
     subjectCode: sec.courseCode,
     classCode: sec.classCode,
@@ -932,29 +937,27 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Gọi Google Gemini API với xác thực Header an toàn và cơ chế thử lại nhiều Model
+ * Gọi Google Gemini API bằng chuỗi chuẩn không chứa dấu ngoặc markdown
  */
 async function callGemini(rawApiKey: string, payload: any): Promise<string> {
-  const apiKey = String(rawApiKey || '')
-    .trim()
-    .replace(/[^\x20-\x7E]/g, '');
-
+  const apiKey = String(rawApiKey || '').trim().replace(/[^\x20-\x7E]/g, '');
   if (!apiKey) {
     throw new Error('Chưa cấu hình GEMINI_API_KEY trên Vercel.');
   }
 
   const candidateModels = [
+    'gemini-3.6-flash',
+    'gemini-3.7-flash',
     'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro'
+    'gemini-2.0-flash'
   ];
 
   let lastErrorMsg = '';
 
   for (const model of candidateModels) {
     try {
-      const endpoint = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){model}:generateContent`;
+      // Ghép chuỗi URL thuần túy bằng toán tử +
+      const endpoint = '[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)' + model + ':generateContent';
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -976,8 +979,8 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
         if (text) return text;
       }
 
-      const errorMsg = data?.error?.message || `HTTP ${response.status}: ${responseText.slice(0, 150)}`;
-      lastErrorMsg = `[${model}] ${errorMsg}`;
+      const errorMsg = data?.error?.message || ('HTTP ' + response.status + ': ' + responseText.slice(0, 150));
+      lastErrorMsg = '[' + model + '] ' + errorMsg;
 
       if (response.status === 404 || errorMsg.includes('not found') || errorMsg.includes('no longer available')) {
         continue;
@@ -1008,7 +1011,6 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ success: false, error: 'Chỉ chấp nhận phương thức POST' });
   }
 
-  // Tự động quét tất cả các biến môi trường phổ biến
   const apiKey =
     process.env.GEMINI_API_KEY ||
     process.env.VITE_GEMINI_API_KEY ||
@@ -1061,7 +1063,7 @@ export default async function handler(req: any, res: any) {
         });
         parts.push({ text: 'Trích xuất toàn bộ môn học trong ảnh sang mảng JSON.' });
       } else if (textData) {
-        parts.push({ text: `Trích xuất lịch học từ văn bản sau:\n${textData}` });
+        parts.push({ text: 'Trích xuất lịch học từ văn bản sau:\n' + textData });
       } else {
         return res.status(400).json({ success: false, error: 'Thiếu dữ liệu thời khóa biểu' });
       }
@@ -1084,7 +1086,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({
         success: true,
         data: normalizedData,
-        message: `Đã nhận diện thành công ${normalizedData.length} môn học`
+        message: 'Đã nhận diện thành công ' + normalizedData.length + ' môn học'
       });
     }
 
@@ -1094,29 +1096,12 @@ export default async function handler(req: any, res: any) {
       const fileData = fileBase64 || imageBase64;
       const detectedMimeType = mimeType || (fileName?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
 
-      const presetText = universityPreset ? `Quy chuẩn trường: ${universityPreset}.` : '';
-      const promptText = customPrompt ? `YÊU CẦU BỔ SUNG: ${customPrompt}` : '';
+      const presetText = universityPreset ? ('Quy chuẩn trường: ' + universityPreset + '.') : '';
+      const promptText = customPrompt ? ('YÊU CẦU BỔ SUNG: ' + customPrompt) : '';
 
-      const systemInstruction = `Trích xuất các lớp học phần từ tài liệu thời khóa biểu sang JSON Array:
-${presetText}
-${promptText}
-SCHEMA:
-[
-  {
-    "stt": 1,
-    "courseCode": "COMP1802",
-    "classCode": "2511COMP180202",
-    "courseName": "Cấu trúc dữ liệu và giải thuật",
-    "classType": "LT",
-    "group": "Lớp 02",
-    "dayOfWeek": 2,
-    "startPeriod": 1,
-    "endPeriod": 3,
-    "room": "D.207 LVS",
-    "lecturer": "TS. Nguyễn Trần Phi Phượng",
-    "weeks": "1-15"
-  }
-]`;
+      const systemInstruction = 'Trích xuất các lớp học phần từ tài liệu thời khóa biểu sang JSON Array:\n' +
+        presetText + '\n' + promptText + '\nSCHEMA:\n' +
+        '[\n  {\n    "stt": 1,\n    "courseCode": "COMP1802",\n    "classCode": "2511COMP180202",\n    "courseName": "Cấu trúc dữ liệu và giải thuật",\n    "classType": "LT",\n    "group": "Lớp 02",\n    "dayOfWeek": 2,\n    "startPeriod": 1,\n    "endPeriod": 3,\n    "room": "D.207 LVS",\n    "lecturer": "TS. Nguyễn Trần Phi Phượng",\n    "weeks": "1-15"\n  }\n]';
 
       const parts: any[] = [];
       if (fileData) {
@@ -1128,7 +1113,7 @@ SCHEMA:
         });
         parts.push({ text: 'Trích xuất chính xác các lớp học phần sang JSON Array.' });
       } else if (textData) {
-        parts.push({ text: `Trích xuất danh mục thời khóa biểu từ văn bản:\n${textData}` });
+        parts.push({ text: 'Trích xuất danh mục thời khóa biểu từ văn bản:\n' + textData });
       } else {
         return res.status(400).json({ success: false, error: 'Thiếu dữ liệu thời khóa biểu' });
       }
@@ -1151,7 +1136,7 @@ SCHEMA:
       return res.status(200).json({
         success: true,
         data: normalizedData,
-        message: `Đã trích xuất thành công ${normalizedData.length} lớp học phần`
+        message: 'Đã trích xuất thành công ' + normalizedData.length + ' lớp học phần'
       });
     }
 
@@ -1166,42 +1151,26 @@ SCHEMA:
         return res.status(400).json({ success: false, error: 'Mã nguồn vượt quá giới hạn (tối đa 100KB).' });
       }
 
-      const systemInstruction = `Bạn là Trợ lý Chuyên gia Phân tích Thuật toán & Trình biên dịch C++/Python/Java của FIT HCMUE.
-Hãy đọc kỹ và phân tích CHÍNH XÁC đoạn mã nguồn sau:
-
-\`\`\`${language || 'cpp'}
-${code}
-\`\`\`
-
-YÊU CẦU PHÂN TÍCH CHUYÊN SÂU:
-1. timeComplexity: Tính toán chính xác độ phức tạp Worst-case Big-O dựa trên vòng lặp, đệ quy, Fenwick Tree/Segment Tree, sorting (VD: O(1), O(log n), O(n), O(n log n), O(n log(max_val)), O(n²)).
-2. spaceComplexity: Tính bộ nhớ phụ trợ Auxiliary Space (stack đệ quy, vector sự kiện, mảng BIT).
-3. isOptimal: boolean (true nếu đã tối ưu, false nếu còn giải thuật tốt hơn).
-4. spaceType: Chuỗi mô tả (VD: "Tại chỗ (In-place)" hoặc "Bộ nhớ phụ trợ O(...)").
-5. dryRunSteps: Tự tạo 1 bộ dữ liệu đầu vào nhỏ cụ thể khớp với bài toán của đoạn code này và mô phỏng 3-5 bước chạy thực tế. Cột variables phải ghi rõ giá trị các biến tương ứng.
-6. warnings: Chỉ ra các lỗi tiềm ẩn thực tế trong đoạn mã này (tràn số, thứ tự comparator khi bằng tọa độ, thiếu điều kiện biên, lỗi con trỏ, lặp vô tận).
-7. optimizations: Đề xuất cải tiến giải thuật hoặc cấu trúc dữ liệu tối ưu hơn (ví dụ: nén tọa độ Coordinate Compression).
-8. edgeCases: Các trường hợp biên cần kiểm tra (mảng rỗng, 1 phần tử, số âm, đoạn thẳng trùng nhau hoặc cắt nhau ở đầu mút).
-9. summary: Tóm tắt nhận xét giải thuật ngắn gọn trong 1 câu.
-
-SCHEMA:
-{
-  "timeComplexity": "O(...)",
-  "spaceComplexity": "O(...)",
-  "isOptimal": true,
-  "spaceType": "...",
-  "dryRunSteps": [{"step": 1, "desc": "...", "variables": "..."}],
-  "warnings": ["..."],
-  "optimizations": ["..."],
-  "edgeCases": ["..."],
-  "summary": "..."
-}`;
+      const systemInstruction = 'Bạn là Trợ lý Chuyên gia Phân tích Thuật toán & Trình biên dịch C++/Python/Java của FIT HCMUE.\n' +
+        'Hãy đọc kỹ và phân tích CHÍNH XÁC đoạn mã nguồn sau:\n\n' +
+        '```' + (language || 'cpp') + '\n' + code + '\n```\n\n' +
+        'YÊU CẦU PHÂN TÍCH CHUYÊN SÂU:\n' +
+        '1. timeComplexity: Tính toán chính xác độ phức tạp Worst-case Big-O dựa trên vòng lặp, đệ quy, Fenwick Tree/Segment Tree, sorting (VD: O(1), O(log n), O(n), O(n log n), O(n log(max_val)), O(n²)).\n' +
+        '2. spaceComplexity: Tính bộ nhớ phụ trợ Auxiliary Space (stack đệ quy, vector sự kiện, mảng BIT).\n' +
+        '3. isOptimal: boolean (true nếu đã tối ưu, false nếu còn giải thuật tốt hơn).\n' +
+        '4. spaceType: Chuỗi mô tả (VD: "Tại chỗ (In-place)" hoặc "Bộ nhớ phụ trợ O(...)").\n' +
+        '5. dryRunSteps: Tự tạo 1 bộ dữ liệu đầu vào nhỏ cụ thể khớp với bài toán của đoạn code này và mô phỏng 3-5 bước chạy thực tế. Cột variables phải ghi rõ giá trị các biến tương ứng.\n' +
+        '6. warnings: Chỉ ra các lỗi tiềm ẩn thực tế trong đoạn mã này (tràn số, thứ tự comparator khi bằng tọa độ, thiếu điều kiện biên, lỗi con trỏ, lặp vô tận).\n' +
+        '7. optimizations: Đề xuất cải tiến giải thuật hoặc cấu trúc dữ liệu tối ưu hơn (ví dụ: nén tọa độ Coordinate Compression).\n' +
+        '8. edgeCases: Các trường hợp biên cần kiểm tra (mảng rỗng, 1 phần tử, số âm, đoạn thẳng trùng nhau hoặc cắt nhau ở đầu mút).\n' +
+        '9. summary: Tóm tắt nhận xét giải thuật ngắn gọn trong 1 câu.\n\n' +
+        'SCHEMA:\n{\n  "timeComplexity": "O(...)",\n  "spaceComplexity": "O(...)",\n  "isOptimal": true,\n  "spaceType": "...",\n  "dryRunSteps": [{"step": 1, "desc": "...", "variables": "..."}],\n  "warnings": ["..."],\n  "optimizations": ["..."],\n  "edgeCases": ["..."],\n  "summary": "..."\n}';
 
       const geminiPayload = {
         contents: [
           {
             role: 'user',
-            parts: [{ text: `Phân tích thuật toán mã nguồn ${language || 'lập trình'} này theo yêu cầu:\n\n${code}` }]
+            parts: [{ text: 'Phân tích thuật toán mã nguồn ' + (language || 'lập trình') + ' này theo yêu cầu:\n\n' + code }]
           }
         ],
         systemInstruction: { parts: [{ text: systemInstruction }] },
