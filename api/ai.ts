@@ -635,11 +635,9 @@
 //   }
 // }
 
-
-
 /**
  * Vercel Serverless Function: /api/ai
- * Ultra-Fast & High-Accuracy AI Assistant Engine powered by Gemini 3.6 Flash
+ * Ultra-Fast & High-Accuracy AI Engine powered by Gemini 3.6 Flash
  * Supports:
  * - PARSE_SCHEDULE (Personal student schedule vision extraction)
  * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
@@ -650,7 +648,6 @@ export const config = {
   maxDuration: 60,
 };
 
-// Trích xuất toàn bộ text parts từ response của Gemini
 function extractTextFromCandidate(candidate: any): string {
   if (!candidate?.content?.parts) return '';
   const parts = candidate.content.parts;
@@ -663,7 +660,6 @@ function extractTextFromCandidate(candidate: any): string {
   return textPieces.join('\n').trim();
 }
 
-// Bóc tách JSON Object an toàn, tự sửa lỗi ký tự xuống dòng chưa escape
 function sanitizeAndParseJson(rawText: string): any {
   if (!rawText || typeof rawText !== 'string') return {};
 
@@ -702,7 +698,6 @@ function sanitizeAndParseJson(rawText: string): any {
   return {};
 }
 
-// Chuẩn hóa cấu trúc kết quả phân tích code (chống rỗng UI)
 function normalizeAnalysisResult(raw: any) {
   if (!raw || typeof raw !== 'object') {
     return {
@@ -749,7 +744,6 @@ function normalizeAnalysisResult(raw: any) {
   };
 }
 
-// Bóc tách JSON mảng an toàn cho Thời khóa biểu
 function parseJsonArraySafely(rawText: string): any[] {
   if (!rawText || typeof rawText !== 'string') return [];
   let text = rawText.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -976,7 +970,6 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
   }));
 }
 
-// Gọi API Gemini ổn định không bị ngắt quãng giữa chừng
 async function callGemini(apiKey: string, payload: any): Promise<string> {
   const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
   let lastError: any = null;
