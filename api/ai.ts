@@ -635,42 +635,20 @@
 //   }
 // }
 
+
 /**
  * Vercel Serverless Function: /api/ai
- * Ultra-Fast & High-Accuracy AI Engine powered by Gemini 3.6 Flash
+ * Ultra-Fast & High-Accuracy AI Engine powered by Gemini Flash
  * Supports:
  * - PARSE_SCHEDULE (Personal student schedule vision extraction)
  * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
  * - EXPLAIN_CODE (Compiler-grade Big-O complexity & dynamic trace)
- */
-
-/**
- * Vercel Serverless Function: /api/ai
- * Ultra-Fast & High-Accuracy AI Assistant Engine powered by Gemini 3.6 Flash
- * Supports:
- * - PARSE_SCHEDULE (Personal student schedule vision extraction)
- * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
- * - EXPLAIN_CODE (Compiler-grade Big-O complexity & dynamic trace)
- */
-
-/**
- * Vercel Serverless Function: /api/ai
- * Ultra-Fast & High-Accuracy AI Engine powered by Gemini 3.6 Flash
- * Supports:
- * - PARSE_SCHEDULE (Personal student schedule vision extraction)
- * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
- * - EXPLAIN_CODE (Compiler-grade Big-O complexity & dynamic trace)
- */
-
-/**
- * Vercel Serverless Function: /api/ai (Security Hardened)
  */
 
 export const config = {
   maxDuration: 60,
 };
 
-// Giới hạn kích thước mã nguồn tối đa (100KB) tránh lạm dụng token
 const MAX_CODE_LENGTH = 100 * 1024;
 
 function extractTextFromCandidate(candidate: any): string {
@@ -954,19 +932,22 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Gọi Google Gemini API an toàn qua Header xác thực (Không nối key trên URL)
+ * Gọi Google Gemini API với xác thực Header an toàn và cơ chế thử lại nhiều Model
  */
 async function callGemini(rawApiKey: string, payload: any): Promise<string> {
-  const apiKey = String(rawApiKey || '').trim().replace(/[\r\n\t\s]/g, '');
+  const apiKey = String(rawApiKey || '')
+    .trim()
+    .replace(/[^\x20-\x7E]/g, '');
+
   if (!apiKey) {
-    throw new Error('Chưa cấu hình GEMINI_API_KEY trên môi trường máy chủ.');
+    throw new Error('Chưa cấu hình GEMINI_API_KEY trên Vercel.');
   }
 
   const candidateModels = [
-    'gemini-3.6-flash',
-    'gemini-3.7-flash',
     'gemini-2.5-flash',
-    'gemini-2.0-flash'
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro'
   ];
 
   let lastErrorMsg = '';
@@ -984,14 +965,18 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(responseText);
+      } catch {}
 
       if (response.ok && data?.candidates?.[0]) {
         const text = extractTextFromCandidate(data.candidates[0]);
         if (text) return text;
       }
 
-      const errorMsg = data?.error?.message || `HTTP ${response.status}`;
+      const errorMsg = data?.error?.message || `HTTP ${response.status}: ${responseText.slice(0, 150)}`;
       lastErrorMsg = `[${model}] ${errorMsg}`;
 
       if (response.status === 404 || errorMsg.includes('not found') || errorMsg.includes('no longer available')) {
@@ -1008,7 +993,6 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
 }
 
 export default async function handler(req: any, res: any) {
-  // 1. Bảo mật CORS (Chỉ cho phép Same-Origin hoặc domain hợp lệ)
   const origin = req.headers.origin;
   if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -1024,12 +1008,17 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ success: false, error: 'Chỉ chấp nhận phương thức POST' });
   }
 
-  // 2. Lấy API Key an toàn từ Backend Environment
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Tự động quét tất cả các biến môi trường phổ biến
+  const apiKey =
+    process.env.GEMINI_API_KEY ||
+    process.env.VITE_GEMINI_API_KEY ||
+    process.env.GOOGLE_API_KEY ||
+    process.env.NEXT_PUBLIC_GEMINI_API_KEY;
+
   if (!apiKey) {
     return res.status(500).json({
       success: false,
-      error: 'Dịch vụ AI chưa được kích hoạt. Vui lòng cấu hình GEMINI_API_KEY trên Vercel.'
+      error: 'Chưa cấu hình biến môi trường GEMINI_API_KEY trên Vercel.'
     });
   }
 
@@ -1039,9 +1028,7 @@ export default async function handler(req: any, res: any) {
     const action = rawAction.toUpperCase();
     const payload = body.payload || body;
 
-    // =========================================================================
     // 1. PERSONAL SCHEDULE EXTRACTION
-    // =========================================================================
     if (action === 'PARSE_SCHEDULE' || rawAction === 'parseSchedule') {
       const { imageBase64, fileBase64, mimeType, textData } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1101,9 +1088,7 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // =========================================================================
     // 2. MASTER SCHEDULE RELATIONAL JOIN
-    // =========================================================================
     if (action === 'PARSE_MASTER_SCHEDULE' || rawAction === 'parseMasterSchedule') {
       const { imageBase64, fileBase64, mimeType, fileName, textData, customPrompt, universityPreset } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1170,18 +1155,15 @@ SCHEMA:
       });
     }
 
-    // =========================================================================
     // 3. EXPLAIN_CODE (ALGORITHM & BIG-O ANALYZER)
-    // =========================================================================
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
       if (!code || typeof code !== 'string' || !code.trim()) {
         return res.status(400).json({ success: false, error: 'Thiếu mã nguồn cần phân tích' });
       }
 
-      // Giới hạn kích thước tránh tấn công làm cạn kiệt tài nguyên
       if (code.length > MAX_CODE_LENGTH) {
-        return res.status(400).json({ success: false, error: 'Mã nguồn vượt quá giới hạn cho phép (tối đa 100KB).' });
+        return res.status(400).json({ success: false, error: 'Mã nguồn vượt quá giới hạn (tối đa 100KB).' });
       }
 
       const systemInstruction = `Bạn là Trợ lý Chuyên gia Phân tích Thuật toán & Trình biên dịch C++/Python/Java của FIT HCMUE.
@@ -1201,11 +1183,6 @@ YÊU CẦU PHÂN TÍCH CHUYÊN SÂU:
 7. optimizations: Đề xuất cải tiến giải thuật hoặc cấu trúc dữ liệu tối ưu hơn (ví dụ: nén tọa độ Coordinate Compression).
 8. edgeCases: Các trường hợp biên cần kiểm tra (mảng rỗng, 1 phần tử, số âm, đoạn thẳng trùng nhau hoặc cắt nhau ở đầu mút).
 9. summary: Tóm tắt nhận xét giải thuật ngắn gọn trong 1 câu.
-
-QUY TẮC ĐỊNH DẠNG:
-- Trả về DUY NHẤT một JSON OBJECT hợp lệ theo schema dưới đây.
-- KHÔNG thêm bất kỳ văn bản giải thích nào ngoài JSON.
-- Đảm bảo các chuỗi ký tự bên trong JSON được escape hợp lệ.
 
 SCHEMA:
 {
@@ -1249,10 +1226,9 @@ SCHEMA:
 
     return res.status(400).json({ success: false, error: 'Hành động không hợp lệ' });
   } catch (error: any) {
-    // Không log API key hoặc thông tin nhạy cảm
     return res.status(500).json({
       success: false,
-      error: 'Máy chủ AI tạm thời không phản hồi. Vui lòng thử lại sau giây lát.'
+      error: error.message || 'Lỗi xử lý nội bộ máy chủ Gemini AI'
     });
   }
 }
