@@ -635,7 +635,6 @@
 //   }
 // }
 
-
 /**
  * Vercel Serverless Function: /api/ai
  * Ultra-Fast & High-Accuracy AI Assistant Engine
@@ -962,10 +961,11 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Gọi REST API tới Gemini ổn định với AbortController
+ * Gọi REST API tới Gemini với các Model đang hoạt động chuẩn xác trên v1beta
  */
 async function callGemini(apiKey: string, payload: any, timeoutMs: number = 15000): Promise<string> {
-  const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+  // Chỉ sử dụng các model đang hoạt động chuẩn trên v1beta (Gemini 2.5 Flash & Gemini 2.0 Flash)
+  const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
   let lastError: any = null;
 
   for (const model of models) {
@@ -1160,7 +1160,7 @@ SCHEMA:
     }
 
     // =========================================================================
-    // 3. PHÂN TÍCH THUẬT TOÁN CHÍNH XÁC THEO CODE (EXPLAIN_CODE)
+    // 3. PHÂN TÍCH THUẬT TOÁN CHÍNH XÁC (EXPLAIN_CODE)
     // =========================================================================
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
