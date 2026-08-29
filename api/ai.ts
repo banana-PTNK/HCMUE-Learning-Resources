@@ -636,9 +636,10 @@
 // }
 
 
+
 /**
  * Vercel Serverless Function: /api/ai
- * Ultra-Fast & High-Accuracy AI Assistant Engine powered by Gemini 3.6 Flash
+ * Ultra-Fast & High-Accuracy AI Engine powered by Gemini 3.6 Flash
  * Supports:
  * - PARSE_SCHEDULE (Personal student schedule vision extraction)
  * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
@@ -961,11 +962,8 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
   }));
 }
 
-/**
- * Gọi REST API tới Gemini 3.6 Flash
- */
 async function callGemini(apiKey: string, payload: any, timeoutMs: number = 15000): Promise<string> {
-  const models = ['gemini-3.6-flash', 'gemini-2.5-flash'];
+  const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
   let lastError: any = null;
 
   for (const model of models) {
@@ -1028,9 +1026,7 @@ export default async function handler(req: any, res: any) {
     const action = rawAction.toUpperCase();
     const payload = body.payload || body;
 
-    // =========================================================================
     // 1. PERSONAL SCHEDULE EXTRACTION (PARSE_SCHEDULE)
-    // =========================================================================
     if (action === 'PARSE_SCHEDULE' || rawAction === 'parseSchedule') {
       const { imageBase64, fileBase64, mimeType, textData } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1090,9 +1086,7 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // =========================================================================
     // 2. MASTER SCHEDULE RELATIONAL JOIN (PARSE_MASTER_SCHEDULE)
-    // =========================================================================
     if (action === 'PARSE_MASTER_SCHEDULE' || rawAction === 'parseMasterSchedule') {
       const { imageBase64, fileBase64, mimeType, fileName, textData, customPrompt, universityPreset } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1159,9 +1153,7 @@ SCHEMA:
       });
     }
 
-    // =========================================================================
-    // 3. PHÂN TÍCH THUẬT TOÁN CHÍNH XÁC (EXPLAIN_CODE)
-    // =========================================================================
+    // 3. COMPILER-GRADE ALGORITHM & BIG-O ANALYZER (EXPLAIN_CODE)
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
       if (!code || typeof code !== 'string' || !code.trim()) {
@@ -1176,7 +1168,7 @@ ${code}
 \`\`\`
 
 YÊU CẦU:
-1. timeComplexity: Tính toán chính xác độ phức tạp Worst-case Big-O dựa trên các vòng lặp và lời gọi đệ quy thực tế trong code (VD: O(1), O(log n), O(n), O(n log n), O(n²), O(2^n)).
+1. timeComplexity: Tính toán chính xác độ phức tạp Worst-case Big-O dựa trên các vòng lặp và đệ quy thực tế trong code (VD: O(1), O(log n), O(n), O(n log n), O(n²), O(2^n)).
 2. spaceComplexity: Tính bộ nhớ phụ trợ Auxiliary Space (stack đệ quy, mảng phụ).
 3. isOptimal: boolean (true nếu đã tối ưu, false nếu còn giải thuật tốt hơn).
 4. spaceType: Chuỗi mô tả (VD: "Tại chỗ (In-place)" hoặc "Bộ nhớ phụ trợ O(...)").
