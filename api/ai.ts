@@ -654,6 +654,10 @@
  * Vercel Serverless Function: /api/ai
  * Safe URL Assembly & Compiler-Grade Big-O Analyzer
  */
+/**
+ * Vercel Serverless Function: /api/ai
+ * Standardized for Gemini 3.6 Flash & Gemini 3.7 Flash Engine
+ */
 
 export const config = {
   maxDuration: 60,
@@ -661,7 +665,6 @@ export const config = {
 
 const MAX_CODE_LENGTH = 100 * 1024;
 
-// Tách rời URL thành các chuỗi tĩnh độc lập để chống 100% việc tự convert sang Markdown link
 const API_SCHEME = 'https://';
 const API_HOST = 'generativelanguage.googleapis.com';
 const API_PATH = '/v1beta/models/';
@@ -948,7 +951,7 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Gọi Google Gemini API với URL được ghép an toàn
+ * Chỉ gọi các model thế hệ mới: gemini-3.6-flash và gemini-3.7-flash
  */
 async function callGemini(rawApiKey: string, payload: any): Promise<string> {
   const apiKey = String(rawApiKey || '')
@@ -956,14 +959,12 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
     .replace(/[\r\n\t\s\[\]\(\)]/g, '');
 
   if (!apiKey) {
-    throw new Error('Chưa cấu hình GEMINI_API_KEY trên Vercel.');
+    throw new Error('Chưa cấu hình GEMINI_API_KEY trên máy chủ Vercel.');
   }
 
   const candidateModels = [
     'gemini-3.6-flash',
-    'gemini-3.7-flash',
-    'gemini-2.5-flash',
-    'gemini-2.0-flash'
+    'gemini-3.7-flash'
   ];
 
   let lastErrorMsg = '';
@@ -1001,7 +1002,7 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
 
       throw new Error(lastErrorMsg);
     } catch (err: any) {
-      lastErrorMsg = err.message || 'Lỗi kết nối máy chủ AI';
+      lastErrorMsg = err.message || 'Lỗi kết nối máy chủ Google Gemini';
     }
   }
 
@@ -1043,7 +1044,7 @@ export default async function handler(req: any, res: any) {
     const action = rawAction.toUpperCase();
     const payload = body.payload || body;
 
-    // 1. PERSONAL SCHEDULE EXTRACTION
+    // 1. PARSE_SCHEDULE
     if (action === 'PARSE_SCHEDULE' || rawAction === 'parseSchedule') {
       const { imageBase64, fileBase64, mimeType, textData } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1089,7 +1090,7 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 2. MASTER SCHEDULE RELATIONAL JOIN
+    // 2. PARSE_MASTER_SCHEDULE
     if (action === 'PARSE_MASTER_SCHEDULE' || rawAction === 'parseMasterSchedule') {
       const { imageBase64, fileBase64, mimeType, fileName, textData, customPrompt, universityPreset } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1139,7 +1140,7 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 3. EXPLAIN_CODE (ALGORITHM & BIG-O ANALYZER)
+    // 3. EXPLAIN_CODE
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
       if (!code || typeof code !== 'string' || !code.trim()) {

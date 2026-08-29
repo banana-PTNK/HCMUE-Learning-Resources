@@ -286,6 +286,21 @@ export interface ParseScheduleResponse {
   error?: string;
 }
 
+/**
+ * Hàm phân tích JSON an toàn phòng vệ chống HTML 500 error từ Vercel
+ */
+async function parseResponseSafely(response: Response): Promise<any> {
+  const rawText = await response.text();
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    if (!response.ok) {
+      throw new Error(`Máy chủ phản hồi lỗi (${response.status}): ${rawText.slice(0, 120)}`);
+    }
+    throw new Error('Dữ liệu máy chủ trả về không đúng định dạng JSON');
+  }
+}
+
 export async function explainCodeAI(
   params: ExplainCodeParams
 ): Promise<ExplainCodeResponse> {
@@ -308,7 +323,7 @@ export async function explainCodeAI(
       }),
     });
 
-    const result = await response.json();
+    const result = await parseResponseSafely(response);
 
     if (!response.ok || !result.success) {
       throw new Error(result.error || `Lỗi máy chủ (${response.status})`);
@@ -351,7 +366,7 @@ export async function parseMasterScheduleAI(
       }),
     });
 
-    const result = await response.json();
+    const result = await parseResponseSafely(response);
 
     if (!response.ok || !result.success) {
       throw new Error(result.error || `Lỗi trích xuất thời khóa biểu (${response.status})`);
@@ -388,7 +403,7 @@ export async function parsePersonalScheduleAI(
       }),
     });
 
-    const result = await response.json();
+    const result = await parseResponseSafely(response);
 
     if (!response.ok || !result.success) {
       throw new Error(result.error || 'Lỗi nhận diện thời khóa biểu cá nhân');
