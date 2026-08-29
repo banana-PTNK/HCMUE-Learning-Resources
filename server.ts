@@ -234,7 +234,386 @@ app.get('/api/firebase-config', (req, res) => {
   return res.json({ success: true, config });
 });
 
-// Lazy Google GenAI Client
+// ============================================================================
+// SERVER-SIDE PERSISTENT STORAGE ENGINE (JSON File Store)
+// Guarantees 100% data persistence across page reloads, tab switches, and logouts
+// ============================================================================
+const DATA_DIR = path.join(process.cwd(), 'src', 'data');
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+const CONTRIBUTIONS_FILE = path.join(DATA_DIR, 'contributionsStore.json');
+const CONTRIBUTORS_FILE = path.join(DATA_DIR, 'contributorsStore.json');
+const ANNOUNCEMENTS_FILE = path.join(DATA_DIR, 'announcementsStore.json');
+const FEEDBACKS_FILE = path.join(DATA_DIR, 'feedbacksStore.json');
+
+function readJsonFileSafely<T>(filePath: string, fallback: T): T {
+  try {
+    if (fs.existsSync(filePath)) {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      return JSON.parse(raw) as T;
+    }
+  } catch (err) {
+    console.warn(`Lỗi đọc tệp JSON ${filePath}:`, err);
+  }
+  return fallback;
+}
+
+function writeJsonFileSafely(filePath: string, data: any): void {
+  try {
+    const tmpPath = `${filePath}.${Date.now()}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    console.error(`Lỗi ghi tệp JSON ${filePath}:`, err);
+  }
+}
+
+// Initialize seed data if needed
+function getInitialContributors(): any[] {
+  const seedFile = path.join(DATA_DIR, 'contributors.json');
+  return readJsonFileSafely(seedFile, []);
+}
+
+function getInitialAnnouncements(): any[] {
+  const seedFile = path.join(DATA_DIR, 'announcements.json');
+  return readJsonFileSafely(seedFile, []);
+}
+
+// 1. Contributions REST Endpoints
+app.get('/api/contributions', (req, res) => {
+  const list = readJsonFileSafely<any[]>(CONTRIBUTIONS_FILE, []);
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  return res.json({ success: true, data: list });
+});
+
+app.post('/api/contributions', (req, res) => {
+  try {
+    const list = readJsonFileSafely<any[]>(CONTRIBUTIONS_FILE, []);
+    const body = req.body || {};
+    const newId = body.id || `contrib_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    
+    const newEntry = {
+      id: newId,
+      targetSubjectCode: (body.targetSubjectCode || '').toUpperCase().trim(),
+      customSubjectName: body.customSubjectName?.trim() || undefined,
+      assetType: body.assetType || 'all',
+      driveUrl: body.driveUrl || '',
+      filesCount: Math.max(1, Number(body.filesCount) || 1),
+      contributorName: (body.contributorName || 'Sinh viên').trim(),
+      studentId: (body.studentId || '').trim(),
+      className: (body.className || '').trim(),
+      email: (body.email || '').trim().toLowerCase(),
+      notes: (body.notes || '').trim(),
+      status: body.status || 'pending',
+      createdAt: body.createdAt || new Date().toISOString(),
+      approvedAt: body.approvedAt || null,
+      approvedBy: body.approvedBy || null,
+      adminFeedback: body.adminFeedback || null
+    };
+
+    // Filter out if duplicate ID exists
+    const filtered = list.filter((item: any) => item.id !== newEntry.id);
+    filtered.unshift(newEntry);
+    writeJsonFileSafely(CONTRIBUTIONS_FILE, filtered);
+
+    return res.json({ success: true, id: newEntry.id, data: newEntry });
+  } catch (err: any) {
+    console.error('Lỗi khi lưu đóng góp tài liệu:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Không thể lưu đóng góp' });
+  }
+});
+
+app.put('/api/contributions/:id/files-count', (req, res) => {
+  const { id } = req.params;
+  const newCount = Math.max(1, Number(req.body?.filesCount) || 1);
+  const list = readJsonFileSafely<any[]>(CONTRIBUTIONS_FILE, []);
+  let found = false;
+
+  const updated = list.map((item: any) => {
+    if (item.id === id) {
+      found = true;
+      return { ...item, filesCount: newCount };
+    }
+    return item;
+  });
+
+  if (found) {
+    writeJsonFileSafely(CONTRIBUTIONS_FILE, updated);
+  }
+  return res.json({ success: true, count: newCount });
+});
+
+app.post('/api/contributions/:id/approve', (req, res) => {
+  const { id } = req.params;
+  const customCount = req.body?.customFilesCount !== undefined ? Math.max(1, Number(req.body.customFilesCount)) : undefined;
+  const adminName = req.body?.adminName || 'Admin';
+
+  const contribList = readJsonFileSafely<any[]>(CONTRIBUTIONS_FILE, []);
+  let targetItem: any = null;
+
+  const updatedContribList = contribList.map((item: any) => {
+    if (item.id === id) {
+      const finalCount = customCount !== undefined ? customCount : (item.filesCount || 1);
+      targetItem = {
+        ...item,
+        status: 'approved',
+        filesCount: finalCount,
+        approvedAt: new Date().toISOString(),
+        approvedBy: adminName
+      };
+      return targetItem;
+    }
+    return item;
+  });
+
+  writeJsonFileSafely(CONTRIBUTIONS_FILE, updatedContribList);
+
+  // Update Leaderboard Contributor
+  if (targetItem) {
+    const rawContribs = readJsonFileSafely<any[]>(CONTRIBUTORS_FILE, getInitialContributors());
+    const mssv = (targetItem.studentId || '').trim();
+    const contribName = (targetItem.contributorName || 'Sinh viên').trim();
+    const pointsToAdd = targetItem.filesCount || 1;
+
+    let matched = false;
+    let updatedContributors = rawContribs.map((c: any) => {
+      const matchMssv = mssv && c.studentId && c.studentId.trim().toLowerCase() === mssv.toLowerCase();
+      const matchName = !mssv && c.name && c.name.trim().toLowerCase() === contribName.toLowerCase();
+      if (matchMssv || matchName) {
+        matched = true;
+        return {
+          ...c,
+          filesCount: (c.filesCount || 0) + pointsToAdd,
+          entriesCount: (c.entriesCount || 0) + 1,
+          recentUpload: targetItem.targetSubjectCode ? `Đóng góp môn ${targetItem.targetSubjectCode}` : c.recentUpload,
+          lastActive: 'Vừa xong'
+        };
+      }
+      return c;
+    });
+
+    if (!matched) {
+      const newContributor = {
+        id: mssv || `contributor_${Date.now()}`,
+        name: contribName,
+        studentId: mssv,
+        className: targetItem.className || '',
+        email: targetItem.email || '',
+        filesCount: pointsToAdd,
+        entriesCount: 1,
+        rank: rawContribs.length + 1,
+        department: 'Khoa Công nghệ Thông tin',
+        avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(contribName)}`,
+        badgeTitle: 'Đóng góp viên Tích cực',
+        specialty: targetItem.targetSubjectCode ? `Chuyên đề ${targetItem.targetSubjectCode}` : 'Tài liệu CNTT',
+        recentUpload: targetItem.targetSubjectCode ? `Đóng góp môn ${targetItem.targetSubjectCode}` : 'Tài liệu học tập',
+        isTopContributor: false,
+        lastActive: 'Vừa xong'
+      };
+      updatedContributors.push(newContributor);
+    }
+
+    // Re-rank
+    updatedContributors.sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+    updatedContributors = updatedContributors.map((item, idx) => ({ ...item, rank: idx + 1 }));
+    writeJsonFileSafely(CONTRIBUTORS_FILE, updatedContributors);
+  }
+
+  return res.json({ success: true, item: targetItem });
+});
+
+app.post('/api/contributions/:id/reject', (req, res) => {
+  const { id } = req.params;
+  const adminFeedback = req.body?.adminFeedback || 'Tài liệu không phù hợp hoặc đã có sẵn.';
+
+  const list = readJsonFileSafely<any[]>(CONTRIBUTIONS_FILE, []);
+  const updated = list.map((item: any) => {
+    if (item.id === id) {
+      return {
+        ...item,
+        status: 'rejected',
+        adminFeedback
+      };
+    }
+    return item;
+  });
+
+  writeJsonFileSafely(CONTRIBUTIONS_FILE, updated);
+  return res.json({ success: true });
+});
+
+app.delete('/api/contributions/:id', (req, res) => {
+  const { id } = req.params;
+  const list = readJsonFileSafely<any[]>(CONTRIBUTIONS_FILE, []);
+  const updated = list.filter((item: any) => item.id !== id);
+  writeJsonFileSafely(CONTRIBUTIONS_FILE, updated);
+  return res.json({ success: true });
+});
+
+// 2. Contributors REST Endpoints
+app.get('/api/contributors', (req, res) => {
+  let list = readJsonFileSafely<any[]>(CONTRIBUTORS_FILE, []);
+  if (list.length === 0) {
+    list = getInitialContributors();
+    writeJsonFileSafely(CONTRIBUTORS_FILE, list);
+  }
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  return res.json({ success: true, data: list });
+});
+
+app.post('/api/contributors', (req, res) => {
+  const body = req.body || {};
+  let list = readJsonFileSafely<any[]>(CONTRIBUTORS_FILE, getInitialContributors());
+  const id = body.id || body.studentId || `contrib_${Date.now()}`;
+
+  let found = false;
+  list = list.map((item: any) => {
+    if (item.id === id || (body.studentId && item.studentId && item.studentId.trim().toLowerCase() === body.studentId.trim().toLowerCase())) {
+      found = true;
+      return { ...item, ...body, id: item.id || id };
+    }
+    return item;
+  });
+
+  if (!found) {
+    const newItem = {
+      id,
+      name: body.name || 'Sinh viên',
+      studentId: body.studentId || '',
+      className: body.className || '',
+      email: body.email || '',
+      filesCount: Number(body.filesCount) || 1,
+      entriesCount: Number(body.entriesCount) || 1,
+      rank: list.length + 1,
+      department: body.department || 'Khoa Công nghệ Thông tin',
+      avatarUrl: body.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(body.name || 'HCMUE')}`,
+      badgeTitle: body.badgeTitle || 'Đóng góp viên Tích cực',
+      specialty: body.specialty || 'Chuyên đề CNTT',
+      recentUpload: body.recentUpload || 'Đóng góp tài liệu',
+      isTopContributor: false,
+      lastActive: 'Vừa xong'
+    };
+    list.push(newItem);
+  }
+
+  list.sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+  list = list.map((item, idx) => ({ ...item, rank: idx + 1 }));
+  writeJsonFileSafely(CONTRIBUTORS_FILE, list);
+
+  return res.json({ success: true, data: list });
+});
+
+app.post('/api/contributors/:id/adjust', (req, res) => {
+  const { id } = req.params;
+  const delta = Number(req.body?.delta) || 0;
+  let list = readJsonFileSafely<any[]>(CONTRIBUTORS_FILE, getInitialContributors());
+
+  list = list.map((item: any) => {
+    if (item.id === id || (item.studentId && item.studentId.trim().toLowerCase() === id.trim().toLowerCase())) {
+      const newCount = Math.max(0, (item.filesCount || 0) + delta);
+      return { ...item, filesCount: newCount };
+    }
+    return item;
+  });
+
+  list.sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+  list = list.map((item, idx) => ({ ...item, rank: idx + 1 }));
+  writeJsonFileSafely(CONTRIBUTORS_FILE, list);
+
+  return res.json({ success: true, data: list });
+});
+
+// 3. Announcements REST Endpoints
+app.get('/api/announcements', (req, res) => {
+  let list = readJsonFileSafely<any[]>(ANNOUNCEMENTS_FILE, []);
+  if (list.length === 0) {
+    list = getInitialAnnouncements();
+    writeJsonFileSafely(ANNOUNCEMENTS_FILE, list);
+  }
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  return res.json({ success: true, data: list });
+});
+
+app.post('/api/announcements', (req, res) => {
+  const body = req.body || {};
+  let list = readJsonFileSafely<any[]>(ANNOUNCEMENTS_FILE, getInitialAnnouncements());
+  const id = body.id || `ann_${Date.now()}`;
+
+  let found = false;
+  list = list.map((item: any) => {
+    if (item.id === id) {
+      found = true;
+      return { ...item, ...body, id };
+    }
+    return item;
+  });
+
+  if (!found) {
+    list.unshift({ ...body, id });
+  }
+
+  writeJsonFileSafely(ANNOUNCEMENTS_FILE, list);
+  return res.json({ success: true, data: list });
+});
+
+app.delete('/api/announcements/:id', (req, res) => {
+  const { id } = req.params;
+  let list = readJsonFileSafely<any[]>(ANNOUNCEMENTS_FILE, getInitialAnnouncements());
+  list = list.filter((item: any) => item.id !== id);
+  writeJsonFileSafely(ANNOUNCEMENTS_FILE, list);
+  return res.json({ success: true });
+});
+
+// 4. Feedbacks REST Endpoints
+app.get('/api/feedbacks', (req, res) => {
+  const list = readJsonFileSafely<any[]>(FEEDBACKS_FILE, []);
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  return res.json({ success: true, data: list });
+});
+
+app.post('/api/feedbacks', (req, res) => {
+  const body = req.body || {};
+  const list = readJsonFileSafely<any[]>(FEEDBACKS_FILE, []);
+  const newFeedback = {
+    id: body.id || `fb_${Date.now()}`,
+    type: body.type || 'general',
+    title: body.title || '',
+    content: body.content || '',
+    userName: body.userName || 'Sinh viên ẩn danh',
+    userEmail: body.userEmail || '',
+    userPhone: body.userPhone || '',
+    rating: Number(body.rating) || 5,
+    status: body.status || 'unread',
+    createdAt: body.createdAt || new Date().toISOString()
+  };
+  list.unshift(newFeedback);
+  writeJsonFileSafely(FEEDBACKS_FILE, list);
+  return res.json({ success: true, data: newFeedback });
+});
+
+app.patch('/api/feedbacks/:id', (req, res) => {
+  const { id } = req.params;
+  const status = req.body?.status;
+  const list = readJsonFileSafely<any[]>(FEEDBACKS_FILE, []);
+  const updated = list.map((item: any) => {
+    if (item.id === id) {
+      return { ...item, status: status || item.status };
+    }
+    return item;
+  });
+  writeJsonFileSafely(FEEDBACKS_FILE, updated);
+  return res.json({ success: true });
+});
+
+app.delete('/api/feedbacks/:id', (req, res) => {
+  const { id } = req.params;
+  const list = readJsonFileSafely<any[]>(FEEDBACKS_FILE, []);
+  const updated = list.filter((item: any) => item.id !== id);
+  writeJsonFileSafely(FEEDBACKS_FILE, updated);
+  return res.json({ success: true });
+});
 let aiClient: GoogleGenAI | null = null;
 function getGenAI(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;

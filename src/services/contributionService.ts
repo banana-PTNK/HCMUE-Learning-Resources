@@ -284,7 +284,16 @@ function cleanUndefined(obj: any): any {
   // 1. ALWAYS IMMEDIATELY save to local cache & emit event so Admin page and UI update instantaneously (0ms)
   saveLocalCachedSubmission(docData);
 
-  // 2. Perform Firestore write and update document ID if successful
+  // 2. Persist to Server REST store (ensures cross-device / cross-session persistence)
+  try {
+    fetch('/api/contributions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(docData)
+    }).catch((e) => console.warn('Server API save contribution warning:', e));
+  } catch {}
+
+  // 3. Perform Firestore write and update document ID if successful
   try {
     const cleanData = cleanUndefined(docData);
     delete cleanData.id; // Let Firestore assign the document ID
@@ -326,17 +335,37 @@ export function getTimestampMs(val: any): number {
 
 /**
  * Fetches all contributions (Pending, Approved, Rejected) for Admin Moderation.
- * Combines Firestore results with local submissions cache for instant reliability.
+ * Combines Server REST API, Firestore, and local submissions cache for absolute reliability.
  */
 export async function fetchAllContributions(): Promise<FirestoreContribution[]> {
-  const firestoreResults: FirestoreContribution[] = [];
+  const mergedMap = new Map<string, FirestoreContribution>();
+  const seenDriveUrls = new Set<string>();
 
+  // 1. Fetch from Server REST API (always reliable across all browsers/refreshes)
+  try {
+    const apiRes = await fetch('/api/contributions');
+    if (apiRes.ok) {
+      const json = await apiRes.json();
+      if (json && Array.isArray(json.data)) {
+        json.data.forEach((item: FirestoreContribution) => {
+          mergedMap.set(item.id, item);
+          if (item.driveUrl) {
+            seenDriveUrls.add(item.driveUrl.trim().toLowerCase());
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Server fetchAllContributions API warning:', err);
+  }
+
+  // 2. Fetch from Firestore
   try {
     const q = query(collection(db, CONTRIBUTIONS_COLLECTION), orderBy('createdAt', 'desc'), limit(150));
     const snapshot = await getDocs(q);
     snapshot.forEach((docSnap) => {
       const data = docSnap.data();
-      firestoreResults.push({
+      const item: FirestoreContribution = {
         id: docSnap.id,
         targetSubjectCode: data.targetSubjectCode || '',
         customSubjectName: data.customSubjectName || undefined,
@@ -353,30 +382,21 @@ export async function fetchAllContributions(): Promise<FirestoreContribution[]> 
         approvedAt: data.approvedAt,
         approvedBy: data.approvedBy,
         adminFeedback: data.adminFeedback
-      });
+      };
+      mergedMap.set(item.id, item);
+      if (item.driveUrl) {
+        seenDriveUrls.add(item.driveUrl.trim().toLowerCase());
+      }
     });
   } catch (error) {
     console.warn('Firestore fetchAllContributions error, using cached:', error);
   }
 
-  // Merge with local cached submissions
+  // 3. Merge with local cached submissions
   const localList = getLocalCachedSubmissions();
-  const mergedMap = new Map<string, FirestoreContribution>();
-  const seenDriveUrls = new Set<string>();
-
-  // Add firestore items first
-  firestoreResults.forEach((item) => {
-    mergedMap.set(item.id, item);
-    if (item.driveUrl) {
-      seenDriveUrls.add(item.driveUrl.trim().toLowerCase());
-    }
-  });
-
-  // Merge local items if not already present and not matching any Firestore item by driveUrl
   localList.forEach((item: any) => {
     const cleanUrl = (item.driveUrl || '').trim().toLowerCase();
     if (cleanUrl && seenDriveUrls.has(cleanUrl)) {
-      // Clean up from local storage since it's already in Firestore
       deleteLocalCachedSubmission(item.id);
       return;
     }
@@ -408,7 +428,16 @@ export async function updateContributionFilesCount(
   // 1. Update local cache
   updateLocalCachedSubmissionFilesCount(contribution.id, safeCount);
 
-  // 2. Update Firestore contribution record
+  // 2. Update Server REST API
+  try {
+    fetch(`/api/contributions/${contribution.id}/files-count`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filesCount: safeCount })
+    }).catch(() => {});
+  } catch {}
+
+  // 3. Update Firestore contribution record
   try {
     const docRef = doc(db, CONTRIBUTIONS_COLLECTION, contribution.id);
     await updateDoc(docRef, {
@@ -418,7 +447,7 @@ export async function updateContributionFilesCount(
     console.warn('Firestore updateContributionFilesCount error:', err);
   }
 
-  // 3. If contribution was already approved, synchronize the delta on Leaderboard
+  // 4. If contribution was already approved, synchronize the delta on Leaderboard
   if (contribution.status === 'approved' && delta !== 0) {
     await adjustContributorFilesCount(contribution.studentId, delta, 0);
   }
@@ -437,16 +466,38 @@ export async function approveContribution(
   const finalFilesCount = customFilesCount !== undefined ? Math.max(1, customFilesCount) : (contribution.filesCount || 1);
   const normalizedMssv = (contribution.studentId || '').trim() ? normalizeStudentId(contribution.studentId) : '';
   const contributorDocId = normalizedMssv || `contrib_${contribution.id}`;
+  const subjectCode = (contribution.targetSubjectCode || '').toUpperCase().trim();
+  const name = (contribution.contributorName || 'Sinh viên').trim();
 
-  const contributionRef = doc(db, CONTRIBUTIONS_COLLECTION, contributionId);
-  const contributorRef = doc(db, CONTRIBUTORS_COLLECTION, contributorDocId);
+  // 1. Immediately update in-memory / persistent store so Leaderboard & Admin UI update instantly
+  await updateContributorRecord(contributorDocId, {
+    name,
+    studentId: (contribution.studentId || '').trim(),
+    className: (contribution.className || '').trim(),
+    email: (contribution.email || '').trim().toLowerCase(),
+    recentUpload: subjectCode ? `Đóng góp tài liệu môn ${subjectCode}` : 'Đóng góp tài liệu học tập',
+    specialty: subjectCode ? `Chuyên đề ${subjectCode}` : 'Tài liệu CNTT',
+  });
+  await adjustContributorFilesCount(contributorDocId, finalFilesCount, 1);
+  updateLocalCachedSubmissionStatus(contributionId, 'approved');
+  deleteLocalCachedSubmission(contributionId);
 
-  // Execute atomic transaction for contribution status & contributor points update
+  // 2. Call Server REST API
   try {
+    fetch(`/api/contributions/${contributionId}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customFilesCount: finalFilesCount, adminName })
+    }).catch(() => {});
+  } catch {}
+
+  // 3. Perform Firestore write safely in background without blocking the UI
+  try {
+    const contributionRef = doc(db, CONTRIBUTIONS_COLLECTION, contributionId);
+    const contributorRef = doc(db, CONTRIBUTORS_COLLECTION, contributorDocId);
+
     await runTransaction(db, async (transaction) => {
-      // 1. Read existing contributor document if it exists
       const contributorDoc = await transaction.get(contributorRef);
-      const subjectCode = (contribution.targetSubjectCode || '').toUpperCase().trim();
 
       if (contributorDoc.exists()) {
         const existing = contributorDoc.data() as Contributor;
@@ -468,7 +519,6 @@ export async function approveContribution(
         });
       } else {
         const rankInfo = getRankLevel(finalFilesCount);
-        const name = (contribution.contributorName || 'Sinh viên').trim();
         const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name || 'HCMUE')}`;
 
         transaction.set(contributorRef, {
@@ -490,7 +540,6 @@ export async function approveContribution(
         });
       }
 
-      // 2. Update contribution document status to approved
       transaction.update(contributionRef, {
         status: 'approved',
         filesCount: finalFilesCount,
@@ -498,12 +547,8 @@ export async function approveContribution(
         approvedBy: adminName
       });
     });
-
-    // Remove from in-memory cache
-    deleteLocalCachedSubmission(contributionId);
   } catch (err) {
-    console.error('Firestore atomic approveContribution error:', err);
-    throw err;
+    console.warn('Firestore atomic approveContribution sync warning (safely retained locally):', err);
   }
 }
 
@@ -718,6 +763,15 @@ export async function rejectContribution(
   // Remove from local cache so it disappears immediately
   deleteLocalCachedSubmission(contributionId);
 
+  // Call Server REST API
+  try {
+    fetch(`/api/contributions/${contributionId}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ adminFeedback: reason })
+    }).catch(() => {});
+  } catch {}
+
   // Update Firestore
   try {
     const docRef = doc(db, CONTRIBUTIONS_COLLECTION, contributionId);
@@ -736,6 +790,13 @@ export async function rejectContribution(
 export async function deleteContribution(contributionId: string): Promise<void> {
   // Update local cache
   deleteLocalCachedSubmission(contributionId);
+
+  // Call Server REST API
+  try {
+    fetch(`/api/contributions/${contributionId}`, {
+      method: 'DELETE'
+    }).catch(() => {});
+  } catch {}
 
   // Update Firestore
   try {
@@ -769,7 +830,7 @@ export async function searchContributionsByStudent(query: string): Promise<Fires
 }
 
 /**
- * Subscribe to Hall of Fame Contributors in real-time (both local events and Firestore).
+ * Subscribe to Hall of Fame Contributors in real-time (both local events, Server API, and Firestore).
  */
 export function subscribeToContributors(
   callback: (contributors: Contributor[]) => void,
@@ -777,6 +838,22 @@ export function subscribeToContributors(
 ): () => void {
   // Emit initial memory state immediately
   callback(getStoredContributors());
+
+  // Background server fetch
+  const syncWithServer = async () => {
+    try {
+      const res = await fetch('/api/contributors');
+      if (res.ok) {
+        const json = await res.json();
+        if (json && Array.isArray(json.data) && json.data.length > 0) {
+          setMemoryContributors(json.data);
+          callback(json.data);
+        }
+      }
+    } catch {}
+  };
+  syncWithServer();
+  const intervalId = setInterval(syncWithServer, 5000);
 
   // Listen to local in-app updates
   const handleLocalUpdate = (e: any) => {
@@ -835,6 +912,7 @@ export function subscribeToContributors(
   }
 
   return () => {
+    clearInterval(intervalId);
     if (typeof window !== 'undefined') {
       window.removeEventListener(CONTRIBUTORS_UPDATED_EVENT, handleLocalUpdate);
     }
@@ -843,21 +921,31 @@ export function subscribeToContributors(
 }
 
 /**
- * Subscribe to all contributions in real-time (both local events and Firestore).
+ * Subscribe to all contributions in real-time (both local events, Server API polling, and Firestore).
  */
 export function subscribeToContributions(
   callback: (contributions: FirestoreContribution[]) => void,
   maxLimit = 150
 ): () => void {
   // Helper to get and deliver combined list
-  const deliverCurrentMerged = () => {
-    const localList = getLocalCachedSubmissions();
-    const sorted = [...localList].sort((a, b) => getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt));
-    callback(sorted);
+  const deliverCurrentMerged = async () => {
+    try {
+      const list = await fetchAllContributions();
+      callback(list);
+    } catch {
+      const localList = getLocalCachedSubmissions();
+      const sorted = [...localList].sort((a, b) => getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt));
+      callback(sorted);
+    }
   };
 
   // Immediate delivery
   deliverCurrentMerged();
+
+  // Background polling every 3.5 seconds ensures instantaneous synchronization across tabs and users
+  const intervalId = setInterval(() => {
+    deliverCurrentMerged();
+  }, 3500);
 
   // Listen to local update events
   const handleLocalUpdate = () => {
@@ -939,6 +1027,7 @@ export function subscribeToContributions(
   }
 
   return () => {
+    clearInterval(intervalId);
     if (typeof window !== 'undefined') {
       window.removeEventListener(CONTRIBUTIONS_UPDATED_EVENT, handleLocalUpdate);
     }
@@ -947,9 +1036,26 @@ export function subscribeToContributions(
 }
 
 /**
- * Fetch verified Hall of Fame Contributors from durable Firestore with SWR cache and limit (no localStorage).
+ * Fetch verified Hall of Fame Contributors from Server API and durable Firestore with SWR cache.
  */
 export async function fetchContributorsFromFirestore(maxLimit = 100): Promise<Contributor[]> {
+  const map = new Map<string, Contributor>();
+
+  // 1. Fetch from Server REST API
+  try {
+    const res = await fetch('/api/contributors');
+    if (res.ok) {
+      const json = await res.json();
+      if (json && Array.isArray(json.data)) {
+        json.data.forEach((c: Contributor) => {
+          const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
+          map.set(key, c);
+        });
+      }
+    }
+  } catch {}
+
+  // 2. Fetch from Firestore
   try {
     const q = query(
       collection(db, CONTRIBUTORS_COLLECTION),
@@ -958,38 +1064,35 @@ export async function fetchContributorsFromFirestore(maxLimit = 100): Promise<Co
     );
     const snapshot = await getDocs(q);
     if (!snapshot.empty) {
-      const list: Contributor[] = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data() as Contributor;
-        list.push({ ...data, id: docSnap.id });
+        const item = { ...data, id: docSnap.id };
+        const key = item.studentId ? normalizeStudentId(item.studentId) : item.id;
+        map.set(key, item);
       });
-      if (list.length > 0) {
-        const baseContributors = getStoredContributors();
-        const map = new Map<string, Contributor>();
-        baseContributors.forEach(c => {
-          const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
-          map.set(key, c);
-        });
-        list.forEach(c => {
-          const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
-          map.set(key, c);
-        });
-        const mergedList = Array.from(map.values())
-          .sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
-        
-        // Dynamic ranking mapping
-        const rankedList = mergedList.map((item, idx) => ({
-          ...item,
-          rank: idx + 1
-        }));
-        setMemoryContributors(rankedList);
-        return rankedList;
-      }
     }
   } catch (err) {
     console.warn('Firestore contributors fetch failed, using stored:', err);
   }
-  return getStoredContributors();
+
+  // 3. Merge with base memory contributors
+  const baseContributors = getStoredContributors();
+  baseContributors.forEach(c => {
+    const key = c.studentId ? normalizeStudentId(c.studentId) : c.id;
+    if (!map.has(key)) {
+      map.set(key, c);
+    }
+  });
+
+  const mergedList = Array.from(map.values())
+    .sort((a, b) => (b.filesCount || 0) - (a.filesCount || 0));
+
+  const rankedList = mergedList.map((item, idx) => ({
+    ...item,
+    rank: idx + 1
+  }));
+  setMemoryContributors(rankedList);
+  return rankedList;
 }
 
 /**

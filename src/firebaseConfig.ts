@@ -4,7 +4,6 @@ import { getAuth, Auth } from 'firebase/auth';
 
 /**
  * Firebase Client Configuration Interface
- * Zero Secrets / Zero Hardcoding: Strictly consumes public client identifiers via Vite environment variables (VITE_*)
  */
 export interface FirebaseConfig {
   apiKey: string;
@@ -19,24 +18,34 @@ export interface FirebaseConfig {
   recaptchaSiteKey?: string;
 }
 
+const DEFAULT_FIREBASE_CONFIG: FirebaseConfig = {
+  apiKey: 'AIzaSy_MOCK_ENV_API_KEY_LOCAL',
+  authDomain: 'gen-lang-client-0251983740.firebaseapp.com',
+  projectId: 'gen-lang-client-0251983740',
+  storageBucket: 'gen-lang-client-0251983740.firebasestorage.app',
+  messagingSenderId: '222186320042',
+  appId: '1:222186320042:web:studyvault-applet',
+  firestoreDatabaseId: 'ai-studio-hcmuefitstudyvau-7c258ce1-cc2e-4438-b51b-7601001d8b3f',
+};
+
 /**
- * 1. Read all client configurations strictly from Vite environment variables (import.meta.env)
+ * 1. Read configurations with Vite env fallback and default database info
  */
 export const firebaseConfig: FirebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || DEFAULT_FIREBASE_CONFIG.apiKey,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || DEFAULT_FIREBASE_CONFIG.authDomain,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || DEFAULT_FIREBASE_CONFIG.projectId,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || DEFAULT_FIREBASE_CONFIG.storageBucket,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || DEFAULT_FIREBASE_CONFIG.appId,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || '',
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || '',
+  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_FIRESTORE_DATABASE_ID || DEFAULT_FIREBASE_CONFIG.firestoreDatabaseId,
   oAuthClientId: import.meta.env.VITE_FIREBASE_OAUTH_CLIENT_ID || '',
   recaptchaSiteKey: import.meta.env.VITE_FIREBASE_RECAPTCHA_SITE_KEY || '',
 };
 
 /**
- * 2. Safe Singleton Pattern: Ensures Firebase App, Auth, and Firestore are initialized exactly once
+ * 2. Safe Singleton Pattern: Ensures Firebase App, Auth, and Firestore are initialized safely
  */
 let appInstance: FirebaseApp | null = null;
 let authInstance: Auth | null = null;
@@ -48,17 +57,19 @@ export function getFirebaseApp(): FirebaseApp {
     if (existingApps.length > 0) {
       appInstance = getApp();
     } else {
-      // Safe fallback configuration to guarantee no crash if variables are not yet populated in the environment
       const configToInit = {
-        apiKey: firebaseConfig.apiKey || 'AIzaSy_MOCK_ENV_API_KEY_LOCAL',
-        authDomain: firebaseConfig.authDomain || (firebaseConfig.projectId ? `${firebaseConfig.projectId}.firebaseapp.com` : 'localhost'),
-        projectId: firebaseConfig.projectId || 'demo-project',
-        storageBucket: firebaseConfig.storageBucket || (firebaseConfig.projectId ? `${firebaseConfig.projectId}.firebasestorage.app` : 'demo-project.appspot.com'),
-        messagingSenderId: firebaseConfig.messagingSenderId || '000000000000',
-        appId: firebaseConfig.appId || '1:000000000000:web:00000000000000',
-        ...(firebaseConfig.measurementId ? { measurementId: firebaseConfig.measurementId } : {}),
+        apiKey: firebaseConfig.apiKey || DEFAULT_FIREBASE_CONFIG.apiKey,
+        authDomain: firebaseConfig.authDomain || DEFAULT_FIREBASE_CONFIG.authDomain,
+        projectId: firebaseConfig.projectId || DEFAULT_FIREBASE_CONFIG.projectId,
+        storageBucket: firebaseConfig.storageBucket || DEFAULT_FIREBASE_CONFIG.storageBucket,
+        messagingSenderId: firebaseConfig.messagingSenderId || DEFAULT_FIREBASE_CONFIG.messagingSenderId,
+        appId: firebaseConfig.appId || DEFAULT_FIREBASE_CONFIG.appId,
       };
-      appInstance = initializeApp(configToInit);
+      try {
+        appInstance = initializeApp(configToInit);
+      } catch {
+        appInstance = getApps()[0] || initializeApp(configToInit, 'default');
+      }
     }
   }
   return appInstance;
@@ -75,9 +86,13 @@ export function getFirebaseDb(): Firestore {
   if (!dbInstance) {
     const currentApp = getFirebaseApp();
     const dbId = firebaseConfig.firestoreDatabaseId;
-    dbInstance = (dbId && dbId !== '(default)')
-      ? getFirestore(currentApp, dbId)
-      : getFirestore(currentApp);
+    try {
+      dbInstance = (dbId && dbId !== '(default)')
+        ? getFirestore(currentApp, dbId)
+        : getFirestore(currentApp);
+    } catch {
+      dbInstance = getFirestore(currentApp);
+    }
   }
   return dbInstance;
 }

@@ -8,7 +8,8 @@ import {
   query,
   orderBy,
   limit,
-  onSnapshot
+  onSnapshot,
+  getDocs
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -32,7 +33,7 @@ const FEEDBACKS_COLLECTION = 'feedbacks';
 export const FEEDBACKS_UPDATED_EVENT = 'fithcmue_feedbacks_updated';
 
 /**
- * Submits a new user feedback with background Firestore sync and no localStorage.
+ * Submits a new user feedback with background Server API and Firestore sync.
  */
 export async function submitUserFeedback(input: NewFeedbackInput): Promise<UserFeedback> {
   const newFeedback: UserFeedback = {
@@ -48,7 +49,16 @@ export async function submitUserFeedback(input: NewFeedbackInput): Promise<UserF
     createdAt: new Date().toISOString()
   };
 
-  // Persist to Firestore in background without blocking the UI
+  // 1. Save to Server REST API
+  try {
+    fetch('/api/feedbacks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newFeedback)
+    }).catch(() => {});
+  } catch {}
+
+  // 2. Persist to Firestore in background
   try {
     const colRef = collection(db, FEEDBACKS_COLLECTION);
     addDoc(colRef, {
@@ -72,17 +82,27 @@ export async function submitUserFeedback(input: NewFeedbackInput): Promise<UserF
 }
 
 /**
- * Subscribe to all feedbacks in real-time from Firestore (no localStorage).
+ * Fetches all feedbacks from Server REST API and Firestore.
  */
-export function subscribeToFeedbacks(
-  callback: (feedbacks: UserFeedback[]) => void,
-  maxLimit = 100
-): () => void {
-  const colRef = collection(db, FEEDBACKS_COLLECTION);
-  const q = query(colRef, orderBy('createdAt', 'desc'), limit(maxLimit));
+export async function fetchAllFeedbacks(): Promise<UserFeedback[]> {
+  const map = new Map<string, UserFeedback>();
 
-  return onSnapshot(q, (snapshot) => {
-    const list: UserFeedback[] = [];
+  // 1. Server REST API
+  try {
+    const res = await fetch('/api/feedbacks');
+    if (res.ok) {
+      const json = await res.json();
+      if (json && Array.isArray(json.data)) {
+        json.data.forEach((f: UserFeedback) => map.set(f.id, f));
+      }
+    }
+  } catch {}
+
+  // 2. Firestore
+  try {
+    const colRef = collection(db, FEEDBACKS_COLLECTION);
+    const q = query(colRef, orderBy('createdAt', 'desc'), limit(100));
+    const snapshot = await getDocs(q);
     snapshot.forEach((d) => {
       const data = d.data();
       let dateStr = new Date().toISOString();
@@ -92,7 +112,7 @@ export function subscribeToFeedbacks(
         dateStr = data.createdAt;
       }
 
-      list.push({
+      map.set(d.id, {
         id: d.id,
         type: data.type || 'general',
         title: data.title || 'Góp ý',
@@ -106,20 +126,88 @@ export function subscribeToFeedbacks(
         adminNote: data.adminNote || ''
       });
     });
-    callback(list);
-  }, (err) => {
-    console.warn('Real-time feedbacks subscription error:', err);
-  });
+  } catch (err) {
+    console.warn('Firestore fetchAllFeedbacks error:', err);
+  }
+
+  return Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
 /**
- * Updates status of a feedback item directly in Firestore.
+ * Subscribe to all feedbacks in real-time from Server API and Firestore.
+ */
+export function subscribeToFeedbacks(
+  callback: (feedbacks: UserFeedback[]) => void,
+  maxLimit = 100
+): () => void {
+  // Immediate delivery
+  fetchAllFeedbacks().then(callback).catch(() => {});
+
+  // Periodic polling every 5s
+  const intervalId = setInterval(() => {
+    fetchAllFeedbacks().then(callback).catch(() => {});
+  }, 5000);
+
+  const colRef = collection(db, FEEDBACKS_COLLECTION);
+  const q = query(colRef, orderBy('createdAt', 'desc'), limit(maxLimit));
+
+  let unsubscribeFirestore = () => {};
+  try {
+    unsubscribeFirestore = onSnapshot(q, (snapshot) => {
+      const list: UserFeedback[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data();
+        let dateStr = new Date().toISOString();
+        if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+          dateStr = data.createdAt.toDate().toISOString();
+        } else if (typeof data.createdAt === 'string') {
+          dateStr = data.createdAt;
+        }
+
+        list.push({
+          id: d.id,
+          type: data.type || 'general',
+          title: data.title || 'Góp ý',
+          content: data.content || '',
+          userName: data.userName || 'Sinh viên',
+          userEmail: data.userEmail || '',
+          studentId: data.studentId || '',
+          rating: data.rating || 5,
+          status: data.status || 'unread',
+          createdAt: dateStr,
+          adminNote: data.adminNote || ''
+        });
+      });
+      callback(list);
+    }, (err) => {
+      console.warn('Real-time feedbacks subscription error:', err);
+    });
+  } catch {}
+
+  return () => {
+    clearInterval(intervalId);
+    unsubscribeFirestore();
+  };
+}
+
+/**
+ * Updates status of a feedback item.
  */
 export async function updateFeedbackStatus(
   id: string,
   status: 'unread' | 'read' | 'resolved',
   adminNote?: string
 ): Promise<void> {
+  // Server REST API
+  try {
+    fetch(`/api/feedbacks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, adminNote })
+    }).catch(() => {});
+  } catch {}
+
+  // Firestore
   try {
     const docRef = doc(db, FEEDBACKS_COLLECTION, id);
     await updateDoc(docRef, {
@@ -132,9 +220,15 @@ export async function updateFeedbackStatus(
 }
 
 /**
- * Deletes a feedback item directly from Firestore.
+ * Deletes a feedback item.
  */
 export async function deleteFeedback(id: string): Promise<void> {
+  // Server REST API
+  try {
+    fetch(`/api/feedbacks/${id}`, { method: 'DELETE' }).catch(() => {});
+  } catch {}
+
+  // Firestore
   try {
     const docRef = doc(db, FEEDBACKS_COLLECTION, id);
     await deleteDoc(docRef);
@@ -142,3 +236,4 @@ export async function deleteFeedback(id: string): Promise<void> {
     console.warn('Failed to delete feedback in Firestore:', err);
   }
 }
+

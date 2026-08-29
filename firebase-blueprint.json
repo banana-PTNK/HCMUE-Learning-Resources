@@ -1,0 +1,54 @@
+{
+  "entities": {
+    "Contribution": {
+      "title": "Contribution",
+      "description": "User submitted study materials pending approval",
+      "type": "object",
+      "properties": {
+        "targetSubjectCode": { "type": "string" },
+        "customSubjectName": { "type": "string" },
+        "assetType": { "type": "string" },
+        "driveUrl": { "type": "string" },
+        "filesCount": { "type": "number" },
+        "contributorName": { "type": "string" },
+        "studentId": { "type": "string" },
+        "className": { "type": "string" },
+        "email": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string" },
+        "approvedAt": { "type": "string" },
+        "approvedBy": { "type": "string" },
+        "adminFeedback": { "type": "string" }
+      },
+      "required": ["targetSubjectCode", "driveUrl", "status"]
+    },
+    "Contributor": {
+      "title": "Contributor",
+      "description": "Hall of Fame Contributor item",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "studentId": { "type": "string" },
+        "className": { "type": "string" },
+        "filesCount": { "type": "number" },
+        "rank": { "type": "number" },
+        "department": { "type": "string" },
+        "avatarUrl": { "type": "string" },
+        "isTopContributor": { "type": "boolean" },
+        "subjectsContributed": { "type": "number" }
+      },
+      "required": ["name"]
+    }
+  },
+  "firestore": {
+    "/contributions/{contributionId}": {
+      "schema": "Contribution",
+      "description": "Submissions by students awaiting review"
+    },
+    "/contributors/{contributorId}": {
+      "schema": "Contributor",
+      "description": "Hall of fame contributors leaderboard"
+    }
+  }
+}

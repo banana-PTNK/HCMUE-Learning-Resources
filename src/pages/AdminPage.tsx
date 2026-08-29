@@ -280,18 +280,27 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
   const handleManualRefreshAll = async () => {
     setIsRefreshingAll(true);
     try {
-      // 1. Fetch non-realtime announcements in background
-      fetchAnnouncements().then((data) => {
-        setAnnouncements(data);
-      }).catch(() => {});
+      // 1. Fetch contributions, leaderboard, announcements, and feedbacks in parallel
+      const [contribsRes, leaderboardRes, annRes] = await Promise.allSettled([
+        fetchAllContributions(),
+        fetchContributorsFromFirestore(),
+        fetchAnnouncements()
+      ]);
 
-      // 2. Micro delay to show brief feedback spinner animation
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      if (contribsRes.status === 'fulfilled') {
+        setContributions(contribsRes.value);
+      }
+      if (leaderboardRes.status === 'fulfilled') {
+        setLeaderboardList(leaderboardRes.value);
+      }
+      if (annRes.status === 'fulfilled') {
+        setAnnouncements(annRes.value);
+      }
 
       const d = new Date();
       const timeStr = `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
       setLastRefreshedAt(timeStr);
-      toast.success('Đã làm mới dữ liệu!', `Dữ liệu thời gian thực được tự động cập nhật lúc ${timeStr}`);
+      toast.success('Đã làm mới dữ liệu!', `Đã tải lại toàn bộ danh sách duyệt (${contribsRes.status === 'fulfilled' ? contribsRes.value.length : 0} mục) lúc ${timeStr}`);
     } catch (err: any) {
       toast.error('Lỗi làm mới', err?.message || 'Không thể cập nhật dữ liệu quản trị.');
     } finally {
@@ -369,23 +378,26 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     if (isAuthenticated) {
+      // Immediate load
+      loadContributions();
+      loadLeaderboard();
       loadAnnouncements();
 
-      // Realtime subscription to contributions (no localStorage)
+      // Realtime subscription to contributions
       setIsLoadingContribs(true);
       const unsubscribeContribs = subscribeToContributions((data) => {
         setContributions(data);
         setIsLoadingContribs(false);
       });
 
-      // Realtime subscription to leaderboard (no localStorage)
+      // Realtime subscription to leaderboard
       setIsLoadingLeaderboard(true);
       const unsubscribeLeaderboard = subscribeToContributors((data) => {
         setLeaderboardList(data);
         setIsLoadingLeaderboard(false);
       });
 
-      // Realtime subscription to feedbacks (no localStorage)
+      // Realtime subscription to feedbacks
       setIsLoadingFeedbacks(true);
       const unsubscribeFeedbacks = subscribeToFeedbacks((data) => {
         setFeedbacks(data);
