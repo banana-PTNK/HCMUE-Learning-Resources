@@ -13,7 +13,8 @@ import {
   User,
   Sparkles,
   ChevronRight,
-  Info
+  Info,
+  GraduationCap
 } from 'lucide-react';
 import { Contributor } from '../types';
 import { UserProfileModal } from './UserProfileModal';
@@ -270,16 +271,19 @@ export const ContributorLeaderboard: React.FC<LeaderboardProps> = ({
                     {top2.name}
                   </h3>
                   
-                  {/* Rank Level Tag: icon + rank + files */}
+                  {/* Rank Level Tag & Class */}
                   <div className="flex flex-wrap items-center justify-center gap-1.5">
                     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${top2.rankLevel.badgeBg}`}>
                       <span>{top2.rankLevel.displayText}</span>
                     </span>
-                  </div>
 
-                  <div className="flex flex-wrap items-center justify-center gap-1.5">
-                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 bg-slate-200/80 dark:bg-slate-700/70 border border-slate-300/80 dark:border-slate-600/70 px-3 py-0.5 rounded-full inline-block">
-                      {top2.className ? `Lớp ${top2.className}` : 'Khoa CNTT'}
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border shadow-2xs ${
+                      top2.className && top2.className.trim()
+                        ? 'bg-blue-50/90 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/80'
+                        : 'bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-300 dark:border-slate-700'
+                    }`}>
+                      <GraduationCap className="w-3.5 h-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
+                      <span>{top2.className && top2.className.trim() ? `Lớp ${top2.className.trim()}` : 'Không xác định'}</span>
                     </span>
                   </div>
                 </div>
@@ -336,16 +340,19 @@ export const ContributorLeaderboard: React.FC<LeaderboardProps> = ({
                     {top1.name}
                   </h3>
 
-                  {/* Rank Level Tag */}
+                  {/* Rank Level Tag & Class */}
                   <div className="flex flex-wrap items-center justify-center gap-1.5">
                     <span className={`inline-flex items-center gap-1 px-3 py-0.5 rounded-full text-xs font-black border ${top1.rankLevel.badgeBg} shadow-xs`}>
                       <span>{top1.rankLevel.displayText}</span>
                     </span>
-                  </div>
 
-                  <div className="flex flex-wrap items-center justify-center gap-1.5">
-                    <span className="text-xs font-semibold text-amber-900 dark:text-amber-200 bg-amber-300/30 dark:bg-amber-900/50 border border-amber-400/40 px-3 py-0.5 rounded-full inline-block">
-                      {top1.className ? `Lớp ${top1.className}` : 'Khoa CNTT'}
+                    <span className={`inline-flex items-center gap-1 px-3 py-0.5 rounded-full text-xs font-bold border shadow-xs ${
+                      top1.className && top1.className.trim()
+                        ? 'text-amber-900 dark:text-amber-200 bg-amber-200/70 dark:bg-amber-900/60 border-amber-300/80 dark:border-amber-700/70'
+                        : 'text-slate-600 dark:text-slate-400 bg-slate-200/70 dark:bg-slate-800 border-slate-300 dark:border-slate-700'
+                    }`}>
+                      <GraduationCap className="w-3.5 h-3.5 shrink-0 text-amber-700 dark:text-amber-400" />
+                      <span>{top1.className && top1.className.trim() ? `Lớp ${top1.className.trim()}` : 'Không xác định'}</span>
                     </span>
                   </div>
                 </div>
@@ -399,16 +406,19 @@ export const ContributorLeaderboard: React.FC<LeaderboardProps> = ({
                     {top3.name}
                   </h3>
 
-                  {/* Rank Level Tag */}
+                  {/* Rank Level Tag & Class */}
                   <div className="flex flex-wrap items-center justify-center gap-1.5">
                     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border ${top3.rankLevel.badgeBg}`}>
                       <span>{top3.rankLevel.displayText}</span>
                     </span>
-                  </div>
 
-                  <div className="flex flex-wrap items-center justify-center gap-1.5">
-                    <span className="text-xs font-semibold text-amber-800 dark:text-amber-200 bg-amber-500/15 border border-amber-500/30 px-3 py-0.5 rounded-full inline-block">
-                      {top3.className ? `Lớp ${top3.className}` : 'Khoa CNTT'}
+                    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold border shadow-2xs ${
+                      top3.className && top3.className.trim()
+                        ? 'text-amber-800 dark:text-amber-200 bg-amber-100/90 dark:bg-amber-950/70 border-amber-300 dark:border-amber-800'
+                        : 'text-slate-600 dark:text-slate-400 bg-slate-200/70 dark:bg-slate-800 border-slate-300 dark:border-slate-700'
+                    }`}>
+                      <GraduationCap className="w-3.5 h-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                      <span>{top3.className && top3.className.trim() ? `Lớp ${top3.className.trim()}` : 'Không xác định'}</span>
                     </span>
                   </div>
                 </div>
@@ -486,15 +496,19 @@ export const ContributorLeaderboard: React.FC<LeaderboardProps> = ({
                           {c.name}
                         </span>
 
-                        {/* Rank Level Badge (Chỉ hiện icon + tên Level) */}
+                        {/* Rank Level Badge */}
                         <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold border shadow-2xs ${rankLevel.badgeBg}`}>
                           <span>{rankLevel.displayText}</span>
                         </span>
-                      </div>
 
-                      <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-medium">
-                        <span className="text-xs text-slate-500 dark:text-slate-400 font-sans">
-                          {c.className ? `Lớp ${c.className}` : 'Khoa CNTT'}
+                        {/* Lớp hiển thị nổi bật bên phải mục level */}
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-xs font-bold border shadow-2xs ${
+                          c.className && c.className.trim()
+                            ? 'bg-blue-50/90 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/70'
+                            : 'bg-slate-100 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700'
+                        }`}>
+                          <GraduationCap className="w-3.5 h-3.5 shrink-0 text-blue-500 dark:text-blue-400" />
+                          <span>{c.className && c.className.trim() ? `Lớp ${c.className.trim()}` : 'Không xác định'}</span>
                         </span>
                       </div>
                     </div>

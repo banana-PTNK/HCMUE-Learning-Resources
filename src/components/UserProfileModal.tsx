@@ -11,7 +11,8 @@ import {
   Sparkles,
   FileCheck,
   ChevronRight,
-  Crown
+  Crown,
+  GraduationCap
 } from 'lucide-react';
 import { Contributor } from '../types';
 import { getRankLevel } from '../utils/rankingUtils';
@@ -111,15 +112,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 )}
               </div>
 
-              {/* Lớp & Cấp bậc Level */}
+              {/* Cấp bậc Level & Lớp */}
               <div className="flex items-center gap-2 flex-wrap text-xs">
-                <span className="bg-white/20 border border-white/25 px-2.5 py-0.5 rounded-md font-semibold text-white/95 backdrop-blur-xs">
-                  {contributor.className ? `Lớp ${contributor.className}` : 'Khoa CNTT'}
-                </span>
-                
-                {/* Badge Rank phẳng gọn gàng (không có tiền tố Level X) */}
+                {/* Badge Rank phẳng gọn gàng */}
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-white/25 border border-white/35 text-white font-bold text-[11px] shadow-2xs backdrop-blur-xs">
                   <span>{rankLevel.displayText || `${rankLevel.icon} ${rankLevel.rank}`}</span>
+                </span>
+
+                {/* Badge Lớp */}
+                <span className="inline-flex items-center gap-1 bg-white/20 border border-white/25 px-2.5 py-0.5 rounded-md font-semibold text-white/95 backdrop-blur-xs">
+                  <GraduationCap className="w-3.5 h-3.5" />
+                  <span>{contributor.className && contributor.className.trim() ? `Lớp ${contributor.className.trim()}` : 'Không xác định'}</span>
                 </span>
               </div>
             </div>

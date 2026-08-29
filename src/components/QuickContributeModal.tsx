@@ -742,14 +742,13 @@ export const QuickContributeModal: React.FC<QuickContributeModalProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1.5 block">
-                    Lớp <span className="text-rose-500">*</span>
+                    Lớp <span className="text-xs font-normal text-slate-500 dark:text-slate-400">(Không bắt buộc)</span>
                   </label>
                   <div className="relative">
                     <GraduationCap className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       type="text"
-                      required
-                      placeholder="Ví dụ: 48.01.CNTT.A, 49.01.SP.TIN..."
+                      placeholder="Ví dụ: 48.01.CNTT.A... (hoặc để trống)"
                       value={studentClass}
                       onChange={(e) => setStudentClass(e.target.value)}
                       className="w-full pl-10 pr-3.5 py-2.5 text-sm rounded-lg bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700/80 text-slate-900 dark:text-white placeholder:text-slate-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
