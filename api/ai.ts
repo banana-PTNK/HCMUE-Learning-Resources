@@ -648,12 +648,16 @@
  * Vercel Serverless Function: /api/ai
  * Ultra Low-Token & High-Quota Multi-Model Engine (Optimized for Free Tier)
  */
+/**
+ * Vercel Serverless Function: /api/ai
+ * Optimized Multi-Model Pipeline (Gemini 3.6 Flash / 3.5 Flash-Lite)
+ */
 
 export const config = {
   maxDuration: 60,
 };
 
-const MAX_CODE_LENGTH = 50 * 1024; // Giới hạn 50KB để tiết kiệm token
+const MAX_CODE_LENGTH = 50 * 1024;
 
 const API_SCHEME = 'https://';
 const API_HOST = 'generativelanguage.googleapis.com';
@@ -941,7 +945,7 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Gọi Google Gemini API với danh sách Model ổn định, hạn mức Free Tier cao
+ * Gọi API Gemini luân chuyển mượt mà qua các model thế hệ 3.x
  */
 async function callGemini(rawApiKey: string, payload: any): Promise<string> {
   const apiKey = String(rawApiKey || '')
@@ -952,16 +956,16 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
     throw new Error('Chưa cấu hình GEMINI_API_KEY trên Vercel.');
   }
 
-  // Danh sách model tối ưu hạn mức Free Tier và ổn định tuyệt đối
-  const candidateModels = [
+  const activeModels = [
     'gemini-3.6-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-2.5-flash'
+    'gemini-3.5-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.1-flash-lite'
   ];
 
   let lastErrorMsg = '';
 
-  for (const model of candidateModels) {
+  for (const model of activeModels) {
     try {
       const endpoint = API_SCHEME + API_HOST + API_PATH + model + API_ACTION;
 
@@ -988,17 +992,18 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
       const errorMsg = data?.error?.message || ('HTTP ' + response.status + ': ' + responseText.slice(0, 150));
       lastErrorMsg = '[' + model + '] ' + errorMsg;
 
-      // Nếu gặp lỗi 429 Quota hoặc 503 Overload: Tự động chuyển ngay sang model kế tiếp
-      const shouldFallback =
+      const isQuotaOrDemandIssue =
         response.status === 429 ||
         response.status === 503 ||
         response.status === 404 ||
+        response.status === 400 ||
         errorMsg.toLowerCase().includes('quota') ||
         errorMsg.toLowerCase().includes('rate limit') ||
         errorMsg.toLowerCase().includes('high demand') ||
-        errorMsg.toLowerCase().includes('overloaded');
+        errorMsg.toLowerCase().includes('no longer available') ||
+        errorMsg.toLowerCase().includes('not found');
 
-      if (shouldFallback) {
+      if (isQuotaOrDemandIssue) {
         continue;
       }
 
@@ -1076,7 +1081,7 @@ export default async function handler(req: any, res: any) {
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 1536,
           responseMimeType: 'application/json'
         }
       };
@@ -1126,7 +1131,7 @@ export default async function handler(req: any, res: any) {
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 1536,
           responseMimeType: 'application/json'
         }
       };
@@ -1142,7 +1147,7 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 3. EXPLAIN_CODE (ALGORITHM & BIG-O ANALYZER)
+    // 3. EXPLAIN_CODE
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
       if (!code || typeof code !== 'string' || !code.trim()) {
@@ -1173,7 +1178,7 @@ export default async function handler(req: any, res: any) {
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 1536,
           responseMimeType: 'application/json'
         }
       };
