@@ -635,13 +635,14 @@
 //   }
 // }
 
+
 /**
  * Vercel Serverless Function: /api/ai
- * Ultra-Fast AI Assistant Engine powered by Gemini Flash
+ * Ultra-Fast & High-Accuracy AI Assistant Engine
  * Supports:
  * - PARSE_SCHEDULE (Personal student schedule vision extraction)
  * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
- * - EXPLAIN_CODE (Big-O complexity, dry-run simulation & optimizations)
+ * - EXPLAIN_CODE (Compiler-grade Big-O complexity & dynamic trace)
  */
 
 export const config = {
@@ -961,16 +962,16 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Gọi siêu tốc đến Gemini API với giới hạn thời gian (Timeout 8s)
+ * Gọi REST API tới Gemini ổn định với AbortController
  */
-async function callGeminiFast(apiKey: string, payload: any): Promise<string> {
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+async function callGemini(apiKey: string, payload: any, timeoutMs: number = 15000): Promise<string> {
+  const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
   let lastError: any = null;
 
   for (const model of models) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // Ngắt ngay sau 8s nếu model bị nghẽn
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
@@ -981,8 +982,8 @@ async function callGeminiFast(apiKey: string, payload: any): Promise<string> {
       });
 
       clearTimeout(timeoutId);
-      const data = await response.json();
 
+      const data = await response.json();
       if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
         return data.candidates[0].content.parts[0].text;
       }
@@ -1078,7 +1079,7 @@ export default async function handler(req: any, res: any) {
         }
       };
 
-      const responseText = await callGeminiFast(apiKey, geminiPayload);
+      const responseText = await callGemini(apiKey, geminiPayload, 20000);
       const parsedData = parseJsonArraySafely(responseText);
       const normalizedData = normalizePersonalSchedule(parsedData);
 
@@ -1147,7 +1148,7 @@ SCHEMA:
         }
       };
 
-      const responseText = await callGeminiFast(apiKey, geminiPayload);
+      const responseText = await callGemini(apiKey, geminiPayload, 30000);
       const parsedData = parseJsonArraySafely(responseText);
       const normalizedData = normalizeExtractedSections(parsedData, fileName);
 
@@ -1159,7 +1160,7 @@ SCHEMA:
     }
 
     // =========================================================================
-    // 3. SIÊU TỐC: PHÂN TÍCH THUẬT TOÁN & BIG-O (EXPLAIN_CODE) (~2-3 giây)
+    // 3. PHÂN TÍCH THUẬT TOÁN CHÍNH XÁC THEO CODE (EXPLAIN_CODE)
     // =========================================================================
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
@@ -1168,23 +1169,24 @@ SCHEMA:
       }
 
       const systemInstruction = `Bạn là Trợ lý Chuyên gia Phân tích Thuật toán & Trình biên dịch C++/Python/Java của FIT HCMUE.
-Phân tích CHÍNH XÁC mã nguồn ${language || 'C++'} sau:
+Hãy đọc kỹ và phân tích CHÍNH XÁC đoạn mã nguồn sau:
+
 \`\`\`${language || 'cpp'}
 ${code}
 \`\`\`
 
 YÊU CẦU:
-1. timeComplexity: Worst-case Big-O chính xác (VD: O(log n), O(n log n), O(V + E)).
-2. spaceComplexity: Auxiliary Space (VD: O(1), O(n)).
-3. isOptimal: boolean (true/false).
-4. spaceType: Chuỗi mô tả (VD: "Tại chỗ (In-place)").
-5. dryRunSteps: 3-4 bước chạy với 1 test case cụ thể (VD: arr = [2, 5, 8, 12], target = 8). Cột variables ghi rõ giá trị các biến.
-6. warnings: Các lỗi tiềm ẩn thực tế (tràn số, vượt biên mảng, lặp vô tận).
-7. optimizations: Gợi ý tối ưu hiệu năng hoặc STL.
-8. edgeCases: Trường hợp biên (mảng rỗng, 1 phần tử, đầu/cuối).
+1. timeComplexity: Tính toán chính xác độ phức tạp Worst-case Big-O dựa trên các vòng lặp và lời gọi đệ quy thực tế trong code (VD: O(1), O(log n), O(n), O(n log n), O(n²), O(2^n)).
+2. spaceComplexity: Tính bộ nhớ phụ trợ Auxiliary Space (stack đệ quy, mảng phụ).
+3. isOptimal: boolean (true nếu đã tối ưu, false nếu còn giải thuật tốt hơn).
+4. spaceType: Chuỗi mô tả (VD: "Tại chỗ (In-place)" hoặc "Bộ nhớ phụ trợ O(...)").
+5. dryRunSteps: Tự tạo 1 bộ dữ liệu đầu vào nhỏ cụ thể khớp với bài toán của đoạn code này và mô phỏng 3-5 bước chạy thực tế. Cột variables phải ghi rõ giá trị các biến tương ứng.
+6. warnings: Chỉ ra các lỗi tiềm ẩn thực tế trong đoạn mã này (tràn số, thiếu điều kiện biên, lỗi con trỏ, lặp vô tận).
+7. optimizations: Đề xuất cải tiến giải thuật hoặc cấu trúc dữ liệu tối ưu hơn.
+8. edgeCases: Các trường hợp biên cần kiểm tra (mảng rỗng, 1 phần tử, số âm, trùng lặp).
 9. summary: Tóm tắt nhận xét giải thuật ngắn gọn trong 1 câu.
 
-TRẢ VỀ DUY NHẤT JSON OBJECT:
+TRẢ VỀ DUY NHẤT MỘT JSON OBJECT:
 {
   "timeComplexity": "O(...)",
   "spaceComplexity": "O(...)",
@@ -1201,19 +1203,19 @@ TRẢ VỀ DUY NHẤT JSON OBJECT:
         contents: [
           {
             role: 'user',
-            parts: [{ text: `Phân tích thuật toán mã nguồn ${language || 'lập trình'}:\n\n${code}` }]
+            parts: [{ text: `Phân tích thuật toán mã nguồn ${language || 'lập trình'} này:\n\n${code}` }]
           }
         ],
         systemInstruction: { parts: [{ text: systemInstruction }] },
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 1500, // Tối ưu để AI phản hồi ngay trong 2-3s
+          maxOutputTokens: 2048,
           responseMimeType: 'application/json'
         }
       };
 
-      const responseText = await callGeminiFast(apiKey, geminiPayload);
+      const responseText = await callGemini(apiKey, geminiPayload, 12000);
       const parsedData = parseJsonObjectSafely(responseText);
 
       return res.status(200).json({
