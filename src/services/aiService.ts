@@ -255,10 +255,12 @@ export async function parseScheduleAI(payload: {
 //     message: parsedRes.data.message || 'Đã phân tích mã nguồn thành công'
 //   };
 // }
+import { CodeAnalysisResult, MasterCourseSection } from '../types';
 
-import { CodeAnalysisResult } from '../types';
-
-export async function explainCodeAI(params: { code: string; language: string }): Promise<{ success: boolean; data: CodeAnalysisResult }> {
+/**
+ * Phân tích thuật toán và độ phức tạp Big-O (Trợ lý Code)
+ */
+export async function explainCodeAI(params: { code: string; language: string }): Promise<{ success: boolean; data?: CodeAnalysisResult; error?: string }> {
   try {
     const res = await fetch('/api/ai', {
       method: 'POST',
@@ -270,45 +272,49 @@ export async function explainCodeAI(params: { code: string; language: string }):
       })
     });
 
-    if (!res.ok) {
-      throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || `Lỗi máy chủ (${res.status})`);
     }
 
-    const data = await res.json();
-    if (data.success && data.data) {
-      return data;
-    }
-    throw new Error(data.error || 'Lỗi phân tích mã nguồn');
+    return { success: true, data: data.data };
   } catch (err: any) {
-    console.warn('Fallback to local rapid analyzer:', err.message);
-    
-    // Fallback thông minh ngay lập tức (<50ms) nếu API mất kết nối
-    const code = params.code.toLowerCase();
-    const isBinarySearch = code.includes('binarysearch') || (code.includes('mid') && code.includes('left'));
-    const isSort = code.includes('sort') || code.includes('partition');
+    console.error('Lỗi khi gọi explainCodeAI:', err);
+    throw new Error(err.message || 'Không thể kết nối đến hệ thống phân tích mã nguồn.');
+  }
+}
+
+/**
+ * Trích xuất thời khóa biểu bằng AI (Bảo toàn nguyên vẹn cho AiSchedulePage)
+ */
+export async function parseMasterScheduleAI(params: {
+  textData?: string;
+  customPrompt?: string;
+  universityPreset?: string;
+}): Promise<{ success: boolean; data: MasterCourseSection[]; message?: string }> {
+  try {
+    const res = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'parseMasterSchedule',
+        textData: params.textData,
+        customPrompt: params.customPrompt,
+        universityPreset: params.universityPreset
+      })
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'Lỗi trích xuất thời khóa biểu');
+    }
 
     return {
       success: true,
-      data: {
-        timeComplexity: isBinarySearch ? 'O(log n)' : isSort ? 'O(n log n)' : 'O(n)',
-        spaceComplexity: 'O(1)',
-        isOptimal: true,
-        spaceType: 'Tại chỗ (In-place)',
-        dryRunSteps: [
-          { step: 1, desc: 'Khởi tạo các biến con trỏ và mảng dữ liệu đầu vào.', variables: 'Khởi đầu' },
-          { step: 2, desc: 'Thực thi vòng lặp chính xử lý phần tử theo điều kiện.', variables: 'Đang duyệt' },
-          { step: 3, desc: 'Hoàn tất thuật toán và trả về kết quả tối ưu.', variables: 'Kết thúc' }
-        ],
-        warnings: [
-          'Chú ý kiểm tra tràn số nguyên khi tính toán chỉ số trung vị.',
-          'Đảm bảo kiểm tra các điều kiện biên của mảng trước khi truy cập index.'
-        ],
-        optimizations: [
-          'Tận dụng các hàm có sẵn trong thư viện chuẩn để tối ưu tốc độ vi xử lý.'
-        ],
-        edgeCases: ['Mảng rỗng (size = 0)', 'Mảng chỉ có 1 phần tử', 'Phần tử cần tìm nằm ở vị trí đầu/cuối'],
-        summary: 'Thuật toán được hiện thực chuẩn xác và đạt hiệu năng tối ưu về thời gian thực thi.'
-      }
+      data: Array.isArray(data.data) ? data.data : []
     };
+  } catch (err: any) {
+    console.error('Lỗi khi trích xuất TKB:', err);
+    throw new Error(err.message || 'Không thể trích xuất thời khóa biểu qua AI.');
   }
 }
