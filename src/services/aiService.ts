@@ -257,6 +257,7 @@
 // }
 
 
+
 import { CodeAnalysisResult, MasterCourseSection } from '../types';
 
 export interface ExplainCodeParams {
@@ -269,7 +270,9 @@ export interface ParseScheduleParams {
   customPrompt?: string;
   universityPreset?: string;
   imageBase64?: string;
+  fileBase64?: string;
   mimeType?: string;
+  fileName?: string;
 }
 
 export interface ExplainCodeResponse {
@@ -286,8 +289,8 @@ export interface ParseScheduleResponse {
 }
 
 /**
- * Phân tích thuật toán và độ phức tạp Big-O (Dành cho trang Trợ Lý Code)
- * Kết nối trực tiếp đến endpoint /api/ai và trả về kết quả phân tích chuẩn xác
+ * Phân tích thuật toán và độ phức tạp Big-O (Trợ Lý Code)
+ * Đẩy toàn bộ payload qua Serverless API Gateway /api/ai
  */
 export async function explainCodeAI(
   params: ExplainCodeParams
@@ -303,18 +306,20 @@ export async function explainCodeAI(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        action: 'explainCode',
-        code: params.code,
-        language: params.language || 'cpp',
+        action: 'EXPLAIN_CODE',
+        payload: {
+          code: params.code,
+          language: params.language || 'cpp',
+        },
       }),
     });
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error || `Máy chủ phản hồi mã lỗi (${response.status})`);
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Máy chủ phản hồi mã lỗi (${response.status})`);
     }
 
-    const result = await response.json();
     if (result.success && result.data) {
       return {
         success: true,
@@ -325,13 +330,12 @@ export async function explainCodeAI(
     throw new Error(result.error || 'Không nhận được dữ liệu phân tích từ AI.');
   } catch (err: any) {
     console.error('Lỗi khi phân tích mã nguồn qua explainCodeAI:', err);
-    throw new Error(err.message || 'Không thể kết nối đến dịch vụ AI. Vui lòng kiểm tra lại đường truyền.');
+    throw new Error(err.message || 'Không thể kết nối đến máy chủ AI.');
   }
 }
 
 /**
- * Trích xuất danh mục lớp học phần Thời khóa biểu (Dành cho trang AiSchedulePage)
- * Hỗ trợ phân tích cả văn bản và hình ảnh TKB, không làm ảnh hưởng đến luồng xếp lịch
+ * Trích xuất danh mục lớp học phần Thời khóa biểu (AiSchedulePage)
  */
 export async function parseMasterScheduleAI(
   params: ParseScheduleParams
@@ -343,32 +347,72 @@ export async function parseMasterScheduleAI(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        action: 'parseMasterSchedule',
-        textData: params.textData,
-        customPrompt: params.customPrompt,
-        universityPreset: params.universityPreset,
-        imageBase64: params.imageBase64,
-        mimeType: params.mimeType,
+        action: 'PARSE_MASTER_SCHEDULE',
+        payload: {
+          textData: params.textData,
+          customPrompt: params.customPrompt,
+          universityPreset: params.universityPreset,
+          imageBase64: params.imageBase64,
+          fileBase64: params.fileBase64,
+          mimeType: params.mimeType,
+          fileName: params.fileName,
+        },
       }),
     });
 
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error || `Lỗi trích xuất thời khóa biểu (${response.status})`);
-    }
-
     const result = await response.json();
-    if (result.success && Array.isArray(result.data)) {
-      return {
-        success: true,
-        data: result.data,
-        message: `Trích xuất thành công ${result.data.length} lớp học phần.`,
-      };
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || `Lỗi trích xuất thời khóa biểu (${response.status})`);
     }
 
-    throw new Error(result.error || 'Dữ liệu thời khóa biểu trả về không hợp lệ.');
+    return {
+      success: true,
+      data: Array.isArray(result.data) ? result.data : [],
+      message: result.message || `Trích xuất thành công ${result.data?.length || 0} lớp học phần.`,
+    };
   } catch (err: any) {
     console.error('Lỗi khi trích xuất thời khóa biểu qua parseMasterScheduleAI:', err);
     throw new Error(err.message || 'Không thể trích xuất thời khóa biểu bằng AI.');
+  }
+}
+
+/**
+ * Trích xuất Thời khóa biểu cá nhân của sinh viên
+ */
+export async function parsePersonalScheduleAI(
+  params: ParseScheduleParams
+): Promise<{ success: boolean; data: any[]; message?: string }> {
+  try {
+    const response = await fetch('/api/ai', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        action: 'PARSE_SCHEDULE',
+        payload: {
+          textData: params.textData,
+          imageBase64: params.imageBase64,
+          fileBase64: params.fileBase64,
+          mimeType: params.mimeType,
+        },
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || 'Lỗi nhận diện thời khóa biểu cá nhân');
+    }
+
+    return {
+      success: true,
+      data: Array.isArray(result.data) ? result.data : [],
+      message: result.message,
+    };
+  } catch (err: any) {
+    console.error('Lỗi khi nhận diện thời khóa biểu cá nhân:', err);
+    throw new Error(err.message || 'Không thể nhận diện thời khóa biểu cá nhân bằng AI.');
   }
 }
