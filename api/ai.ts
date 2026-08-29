@@ -636,7 +636,6 @@
 // }
 
 
-
 /**
  * Vercel Serverless Function: /api/ai
  * Ultra-Fast & High-Accuracy AI Engine powered by Gemini 3.6 Flash
@@ -650,16 +649,111 @@ export const config = {
   maxDuration: 60,
 };
 
+// Hàm trích xuất toàn bộ text từ các parts của Gemini
+function extractTextFromCandidate(candidate: any): string {
+  if (!candidate?.content?.parts) return '';
+  const parts = candidate.content.parts;
+  
+  // Nối tất cả các text parts hợp lệ
+  const textPieces: string[] = [];
+  for (const part of parts) {
+    if (part.text) {
+      textPieces.push(part.text);
+    }
+  }
+  return textPieces.join('\n').trim();
+}
+
+// Bóc tách JSON Object an toàn tuyệt đối từ phản hồi của AI
+function parseJsonObjectSafely(rawText: string): any {
+  if (!rawText || typeof rawText !== 'string') return {};
+
+  let text = rawText.trim();
+
+  // 1. Thử parse trực tiếp
+  try {
+    const direct = JSON.parse(text);
+    if (direct && typeof direct === 'object') return direct;
+  } catch {}
+
+  // 2. Làm sạch markdown code block (```json ... ```)
+  text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try {
+    const cleaned = JSON.parse(text);
+    if (cleaned && typeof cleaned === 'object') return cleaned;
+  } catch {}
+
+  // 3. Tìm vùng chứa JSON từ '{' đầu tiên đến '}' cuối cùng
+  const firstBrace = text.indexOf('{');
+  const lastBrace = text.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    try {
+      const extracted = text.slice(firstBrace, lastBrace + 1);
+      const obj = JSON.parse(extracted);
+      if (obj && typeof obj === 'object') return obj;
+    } catch {}
+  }
+
+  return {};
+}
+
+// Chuẩn hóa và map dữ liệu phân tích code (chống rỗng UI)
+function normalizeAnalysisResult(raw: any) {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      timeComplexity: "O(n)",
+      spaceComplexity: "O(1)",
+      isOptimal: true,
+      spaceType: "Tại chỗ (In-place)",
+      dryRunSteps: [],
+      warnings: [],
+      optimizations: [],
+      edgeCases: [],
+      summary: "Đã phân tích mã nguồn thành công."
+    };
+  }
+
+  // Map linh hoạt cả camelCase lẫn snake_case
+  const timeComplexity = raw.timeComplexity || raw.time_complexity || raw.time || raw.complexity || "O(n)";
+  const spaceComplexity = raw.spaceComplexity || raw.space_complexity || raw.space || raw.auxiliary_space || "O(1)";
+  const isOptimal = raw.isOptimal !== undefined ? Boolean(raw.isOptimal) : (raw.is_optimal !== undefined ? Boolean(raw.is_optimal) : true);
+  const spaceType = raw.spaceType || raw.space_type || (spaceComplexity.includes("1") ? "Tại chỗ (In-place)" : "Bộ nhớ phụ trợ");
+
+  // Chuẩn hóa Dry Run Steps
+  let rawSteps = raw.dryRunSteps || raw.dry_run_steps || raw.steps || raw.trace || [];
+  if (!Array.isArray(rawSteps)) rawSteps = [];
+  const dryRunSteps = rawSteps.map((s: any, idx: number) => ({
+    step: Number(s.step || s.stepNumber || idx + 1),
+    desc: String(s.desc || s.description || s.action || s.explanation || `Bước thực thi ${idx + 1}`),
+    variables: String(s.variables || s.vars || s.state || s.values || '')
+  }));
+
+  // Chuẩn hóa Warnings, Optimizations, Edge Cases
+  const warnings = Array.isArray(raw.warnings) ? raw.warnings : (Array.isArray(raw.risks) ? raw.risks : []);
+  const optimizations = Array.isArray(raw.optimizations) ? raw.optimizations : (Array.isArray(raw.improvements) ? raw.improvements : []);
+  const edgeCases = Array.isArray(raw.edgeCases) ? raw.edgeCases : (Array.isArray(raw.edge_cases) ? raw.edge_cases : []);
+  const summary = String(raw.summary || raw.overview || raw.conclusion || "Hoàn tất phân tích thuật toán.");
+
+  return {
+    timeComplexity,
+    spaceComplexity,
+    isOptimal,
+    spaceType,
+    dryRunSteps,
+    warnings,
+    optimizations,
+    edgeCases,
+    summary
+  };
+}
+
 function parseJsonArraySafely(rawText: string): any[] {
   if (!rawText || typeof rawText !== 'string') return [];
 
-  let cleaned = rawText.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-  }
+  let text = rawText.trim().replace(/```json/gi, '').replace(/```/g, '').trim();
 
   try {
-    const direct = JSON.parse(cleaned);
+    const direct = JSON.parse(text);
     if (Array.isArray(direct)) return direct;
     if (direct && typeof direct === 'object') {
       if (Array.isArray(direct.data)) return direct.data;
@@ -670,34 +764,17 @@ function parseJsonArraySafely(rawText: string): any[] {
     }
   } catch {}
 
-  const firstBracket = cleaned.indexOf('[');
-  if (firstBracket !== -1) {
-    const fromBracket = cleaned.slice(firstBracket);
-    const lastBrace = fromBracket.lastIndexOf('}');
-    if (lastBrace !== -1) {
-      const candidate = fromBracket.slice(0, lastBrace + 1) + ']';
-      try {
-        const parsedCandidate = JSON.parse(candidate);
-        if (Array.isArray(parsedCandidate) && parsedCandidate.length > 0) {
-          return parsedCandidate;
-        }
-      } catch {}
-    }
-  }
-
-  const extractedObjects: any[] = [];
-  const objectRegex = /\{[^{}]*?(?:"courseCode"|"stt"|"classCode"|"subjectCode"|"maHocPhan"|"courseName"|"subjectName")[^{}]*?\}/g;
-  let match;
-  while ((match = objectRegex.exec(cleaned)) !== null) {
+  const firstBracket = text.indexOf('[');
+  const lastBracket = text.lastIndexOf(']');
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
     try {
-      const obj = JSON.parse(match[0]);
-      if (obj && typeof obj === 'object') {
-        extractedObjects.push(obj);
-      }
+      const candidate = text.slice(firstBracket, lastBracket + 1);
+      const parsedCandidate = JSON.parse(candidate);
+      if (Array.isArray(parsedCandidate)) return parsedCandidate;
     } catch {}
   }
 
-  return extractedObjects;
+  return [];
 }
 
 function isHeaderOrNoiseString(val: string): boolean {
@@ -722,30 +799,9 @@ function isHeaderOrNoiseString(val: string): boolean {
 
 function cleanLecturerName(raw: any): string {
   if (!raw || typeof raw !== 'string') return '';
-  let str = raw.trim()
-    .replace(/^[-–—:;,.]+/, '')
-    .replace(/[-–—:;,.]+$/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
+  let str = raw.trim().replace(/^[-–—:;,.]+/, '').replace(/[-–—:;,.]+$/, '').replace(/\s+/g, ' ').trim();
   const lower = str.toLowerCase();
-  if (
-    !str ||
-    str.length < 2 ||
-    lower === '-' ||
-    lower === '--' ||
-    lower === '...' ||
-    lower === 'null' ||
-    lower === 'undefined' ||
-    lower === 'n/a' ||
-    lower === 'chưa phân công' ||
-    lower === 'chua phan cong' ||
-    lower === 'chưa có' ||
-    lower === 'chua co' ||
-    lower === 'chưa xếp' ||
-    lower === 'chua xep' ||
-    isHeaderOrNoiseString(str)
-  ) {
+  if (!str || str.length < 2 || lower === '-' || lower === '--' || lower === 'null' || isHeaderOrNoiseString(str)) {
     return '';
   }
   return str;
@@ -753,27 +809,9 @@ function cleanLecturerName(raw: any): string {
 
 function cleanRoomName(raw: any): string {
   if (!raw || typeof raw !== 'string') return '';
-  let str = raw.trim()
-    .replace(/^[-–—:;,.]+/, '')
-    .replace(/[-–—:;,.]+$/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
+  let str = raw.trim().replace(/^[-–—:;,.]+/, '').replace(/[-–—:;,.]+$/, '').replace(/\s+/g, ' ').trim();
   const lower = str.toLowerCase();
-  if (
-    !str ||
-    str.length < 2 ||
-    lower === '-' ||
-    lower === '--' ||
-    lower === 'null' ||
-    lower === 'undefined' ||
-    lower === 'n/a' ||
-    lower === 'chưa xếp phòng' ||
-    lower === 'chua xep phong' ||
-    lower === 'chưa có' ||
-    lower === 'chua co' ||
-    isHeaderOrNoiseString(str)
-  ) {
+  if (!str || str.length < 2 || lower === '-' || lower === '--' || lower === 'null' || isHeaderOrNoiseString(str)) {
     return '';
   }
   return str;
@@ -782,38 +820,17 @@ function cleanRoomName(raw: any): string {
 function healCourseCode(raw: string): string {
   if (!raw) return '';
   let code = raw.trim().toUpperCase().replace(/[\s\-_.]+/g, '');
-  code = code
+  return code
     .replace(/^CONF/i, 'COMP')
     .replace(/^C0MP/i, 'COMP')
     .replace(/^C0NF/i, 'COMP')
     .replace(/^1TEC/i, 'ITEC')
     .replace(/^1T/i, 'IT')
     .replace(/^M4TH/i, 'MATH');
-  return code;
-}
-
-function parseJsonObjectSafely(rawText: string): any {
-  if (!rawText || typeof rawText !== 'string') return {};
-  let cleaned = rawText.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-  }
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (lastBrace !== -1) {
-      try {
-        return JSON.parse(cleaned.slice(0, lastBrace + 1));
-      } catch {}
-    }
-  }
-  return {};
 }
 
 function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string): any[] {
   if (!Array.isArray(rawList)) return [];
-
   const results: any[] = [];
   const seenKey = new Set<string>();
 
@@ -822,9 +839,7 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
     if (!item || typeof item !== 'object') continue;
 
     let courseName = String(item.courseName ?? item.tenHocPhan ?? item.tenHp ?? item.tenMh ?? item.tenMon ?? item.subjectName ?? '').trim();
-    if (!courseName || courseName.length < 2 || isHeaderOrNoiseString(courseName)) {
-      continue;
-    }
+    if (!courseName || courseName.length < 2 || isHeaderOrNoiseString(courseName)) continue;
 
     let rawCourseCode = String(item.courseCode ?? item.maHocPhan ?? item.maHp ?? item.maMh ?? item.maMon ?? item.subjectCode ?? '').trim();
     let rawClassCode = String(item.classCode ?? item.maLopHocPhan ?? item.maLhp ?? item.maLop ?? '').trim();
@@ -837,11 +852,8 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
 
     if (!courseCode && !classCode) {
       const match = courseName.match(/^([A-Z]{2,6}\d{3,5})/i);
-      if (match) {
-        courseCode = healCourseCode(match[1]);
-      } else {
-        continue;
-      }
+      if (match) courseCode = healCourseCode(match[1]);
+      else continue;
     }
 
     if (!courseCode && classCode) {
@@ -858,19 +870,17 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
     let day = item.dayOfWeek ?? item.thu ?? item.day ?? item.thuHoc ?? null;
     if (typeof day === 'string') {
       const lower = day.toLowerCase().trim();
-      if (lower.includes('hai') || lower === '2' || lower.includes('t2') || lower.includes('thứ 2') || lower.includes('thu 2') || lower.includes('mon')) day = 2;
-      else if (lower.includes('ba') || lower === '3' || lower.includes('t3') || lower.includes('thứ 3') || lower.includes('thu 3') || lower.includes('tue')) day = 3;
-      else if (lower.includes('tư') || lower.includes('tu') || lower.includes('bon') || lower === '4' || lower.includes('t4') || lower.includes('thứ 4') || lower.includes('thu 4') || lower.includes('wed')) day = 4;
-      else if (lower.includes('năm') || lower.includes('nam') || lower === '5' || lower.includes('t5') || lower.includes('thứ 5') || lower.includes('thu 5') || lower.includes('thu')) day = 5;
-      else if (lower.includes('sáu') || lower.includes('sau') || lower === '6' || lower.includes('t6') || lower.includes('thứ 6') || lower.includes('thu 6') || lower.includes('fri')) day = 6;
-      else if (lower.includes('bảy') || lower.includes('bay') || lower === '7' || lower.includes('t7') || lower.includes('thứ 7') || lower.includes('thu 7') || lower.includes('sat')) day = 7;
-      else if (lower.includes('nhật') || lower.includes('nhat') || lower.includes('cn') || lower === '8' || lower === '1' || lower.includes('chủ nhật') || lower.includes('chu nhat') || lower.includes('sun')) day = 8;
+      if (lower.includes('hai') || lower === '2' || lower.includes('t2') || lower.includes('mon')) day = 2;
+      else if (lower.includes('ba') || lower === '3' || lower.includes('t3') || lower.includes('tue')) day = 3;
+      else if (lower.includes('tư') || lower.includes('tu') || lower === '4' || lower.includes('t4') || lower.includes('wed')) day = 4;
+      else if (lower.includes('năm') || lower.includes('nam') || lower === '5' || lower.includes('t5') || lower.includes('thu')) day = 5;
+      else if (lower.includes('sáu') || lower.includes('sau') || lower === '6' || lower.includes('t6') || lower.includes('fri')) day = 6;
+      else if (lower.includes('bảy') || lower.includes('bay') || lower === '7' || lower.includes('t7') || lower.includes('sat')) day = 7;
+      else if (lower.includes('nhật') || lower.includes('nhat') || lower === '8' || lower === '1' || lower.includes('sun')) day = 8;
       else day = null;
     }
     const dayNum = Number(day);
-    if (!dayNum || isNaN(dayNum) || dayNum < 2 || dayNum > 8) {
-      continue;
-    }
+    if (!dayNum || isNaN(dayNum) || dayNum < 2 || dayNum > 8) continue;
 
     let start = Number(item.startPeriod ?? item.tietBatDau ?? item.tietBd ?? item.tiet_bd ?? item.tietStart ?? 0);
     let end = Number(item.endPeriod ?? item.tietKetThuc ?? item.tietKt ?? item.tiet_kt ?? item.tietEnd ?? 0);
@@ -884,30 +894,20 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
       }
     }
 
-    if (!start || isNaN(start) || start < 1 || start > 12) {
-      continue;
-    }
-    if (!end || isNaN(end) || end < start || end > 12) {
-      end = Math.min(12, start + 2);
-    }
-    if (end - start + 1 > 4) {
-      end = start + 2;
-    }
+    if (!start || isNaN(start) || start < 1 || start > 12) continue;
+    if (!end || isNaN(end) || end < start || end > 12) end = Math.min(12, start + 2);
+    if (end - start + 1 > 4) end = start + 2;
 
     const rawLecturer = item.lecturer ?? item.giangVien ?? item.cbgd ?? item.canBoGiangDay ?? item.hoTenGv ?? item.gv ?? '';
     const lecturer = cleanLecturerName(rawLecturer);
-    if (!lecturer) {
-      continue;
-    }
+    if (!lecturer) continue;
 
     const rawRoom = item.room ?? item.phongHoc ?? item.phongMay ?? item.lab ?? item.phong ?? '';
     const room = cleanRoomName(rawRoom);
-    if (!room) {
-      continue;
-    }
+    if (!room) continue;
 
     const rawType = String(item.classType ?? item.loaiHocPhan ?? item.loaiLhp ?? item.loaiLop ?? '').toUpperCase();
-    const isTH = item.isLab === true || rawType.includes('TH') || rawType.includes('LAB') || rawGroup.toUpperCase().includes('TH') || classCode.toUpperCase().includes('TH') || classCode.toUpperCase().includes('LAB') || room.toUpperCase().includes('LAB') || room.toUpperCase().includes('PM');
+    const isTH = item.isLab === true || rawType.includes('TH') || rawType.includes('LAB') || rawGroup.toUpperCase().includes('TH') || classCode.toUpperCase().includes('TH');
     const classType = isTH ? 'TH' : 'LT';
     const group = rawGroup || (classType === 'TH' ? 'Nhóm TH 01' : 'Lớp 01');
 
@@ -971,7 +971,7 @@ async function callGemini(apiKey: string, payload: any, timeoutMs: number = 1500
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const url = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -982,8 +982,9 @@ async function callGemini(apiKey: string, payload: any, timeoutMs: number = 1500
       clearTimeout(timeoutId);
 
       const data = await response.json();
-      if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return data.candidates[0].content.parts[0].text;
+      if (response.ok && data?.candidates?.[0]) {
+        const text = extractTextFromCandidate(data.candidates[0]);
+        if (text) return text;
       }
 
       lastError = new Error(data?.error?.message || `HTTP ${response.status} from ${model}`);
@@ -1008,11 +1009,7 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ success: false, error: 'Method Not Allowed' });
   }
 
-  const apiKey =
-    process.env.GEMINI_API_KEY ||
-    process.env.VITE_GEMINI_API_KEY ||
-    process.env.GOOGLE_API_KEY;
-
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
       success: false,
@@ -1153,7 +1150,7 @@ SCHEMA:
       });
     }
 
-    // 3. COMPILER-GRADE ALGORITHM & BIG-O ANALYZER (EXPLAIN_CODE)
+    // 3. PHÂN TÍCH THUẬT TOÁN & BIG-O (EXPLAIN_CODE)
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
       if (!code || typeof code !== 'string' || !code.trim()) {
@@ -1207,12 +1204,13 @@ TRẢ VỀ DUY NHẤT MỘT JSON OBJECT:
         }
       };
 
-      const responseText = await callGemini(apiKey, geminiPayload, 12000);
-      const parsedData = parseJsonObjectSafely(responseText);
+      const responseText = await callGemini(apiKey, geminiPayload, 15000);
+      const parsedRaw = parseJsonObjectSafely(responseText);
+      const normalizedResult = normalizeAnalysisResult(parsedRaw);
 
       return res.status(200).json({
         success: true,
-        data: parsedData,
+        data: normalizedResult,
         message: 'Đã phân tích mã nguồn thành công'
       });
     }
