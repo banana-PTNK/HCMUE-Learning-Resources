@@ -644,31 +644,16 @@
  * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
  * - EXPLAIN_CODE (Compiler-grade Big-O complexity & dynamic trace)
  */
-
 /**
  * Vercel Serverless Function: /api/ai
- * Gemini 3.6 Flash Engine - Compiler-grade Big-O & Schedule Parser
- */
-
-/**
- * Vercel Serverless Function: /api/ai
- * Safe URL Assembly & Compiler-Grade Big-O Analyzer
- */
-/**
- * Vercel Serverless Function: /api/ai
- * Standardized for Gemini 3.6 Flash & Gemini 3.7 Flash Engine
- */
-
-/**
- * Vercel Serverless Function: /api/ai
- * High-Availability Multi-Model Gemini Engine (Auto-Recovery on High Demand / 503)
+ * Ultra Low-Token & High-Quota Multi-Model Engine (Optimized for Free Tier)
  */
 
 export const config = {
   maxDuration: 60,
 };
 
-const MAX_CODE_LENGTH = 100 * 1024;
+const MAX_CODE_LENGTH = 50 * 1024; // Giới hạn 50KB để tiết kiệm token
 
 const API_SCHEME = 'https://';
 const API_HOST = 'generativelanguage.googleapis.com';
@@ -956,7 +941,7 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Gọi Google Gemini API với cơ chế tự động vượt lỗi 503 (High Demand) và 429
+ * Gọi Google Gemini API với danh sách Model ổn định, hạn mức Free Tier cao
  */
 async function callGemini(rawApiKey: string, payload: any): Promise<string> {
   const apiKey = String(rawApiKey || '')
@@ -967,11 +952,11 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
     throw new Error('Chưa cấu hình GEMINI_API_KEY trên Vercel.');
   }
 
-  // Thứ tự ưu tiên: 3.6-flash (ổn định nhất) -> 3.6-pro -> 3.7-flash
+  // Danh sách model tối ưu hạn mức Free Tier và ổn định tuyệt đối
   const candidateModels = [
     'gemini-3.6-flash',
-    'gemini-3.6-pro',
-    'gemini-3.7-flash'
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash'
   ];
 
   let lastErrorMsg = '';
@@ -1003,19 +988,17 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
       const errorMsg = data?.error?.message || ('HTTP ' + response.status + ': ' + responseText.slice(0, 150));
       lastErrorMsg = '[' + model + '] ' + errorMsg;
 
-      // Nếu gặp lỗi quá tải (503, 429), model không tồn tại (404) hoặc lỗi dịch vụ: Bỏ qua và chuyển sang model kế tiếp ngay lập tức
-      const isTransientOrUnavailable =
-        response.status === 503 ||
+      // Nếu gặp lỗi 429 Quota hoặc 503 Overload: Tự động chuyển ngay sang model kế tiếp
+      const shouldFallback =
         response.status === 429 ||
+        response.status === 503 ||
         response.status === 404 ||
-        response.status === 500 ||
-        errorMsg.toLowerCase().includes('high demand') ||
         errorMsg.toLowerCase().includes('quota') ||
-        errorMsg.toLowerCase().includes('overloaded') ||
-        errorMsg.toLowerCase().includes('no longer available') ||
-        errorMsg.toLowerCase().includes('not found');
+        errorMsg.toLowerCase().includes('rate limit') ||
+        errorMsg.toLowerCase().includes('high demand') ||
+        errorMsg.toLowerCase().includes('overloaded');
 
-      if (isTransientOrUnavailable) {
+      if (shouldFallback) {
         continue;
       }
 
@@ -1069,8 +1052,8 @@ export default async function handler(req: any, res: any) {
       const fileData = fileBase64 || imageBase64;
       const detectedMimeType = mimeType || 'image/jpeg';
 
-      const systemInstruction = 'Trích xuất dữ liệu Thời khóa biểu cá nhân sang JSON Array:\n' +
-        '[\n  {\n    "subjectName": "Cơ sở dữ liệu",\n    "subjectCode": "COMP1017",\n    "classCode": "2511COMP101701",\n    "classGroup": "Lớp 01",\n    "dayOfWeek": 2,\n    "startPeriod": 1,\n    "endPeriod": 3,\n    "room": "D.207",\n    "lecturer": "TS. Nguyễn Trần Phi Phượng",\n    "isLab": false,\n    "weeks": "1-15"\n  }\n]';
+      const systemInstruction = 'Trích xuất TKB cá nhân sang JSON:\n' +
+        '[{"subjectName":"Cơ sở dữ liệu","subjectCode":"COMP1017","classCode":"2511COMP101701","classGroup":"Lớp 01","dayOfWeek":2,"startPeriod":1,"endPeriod":3,"room":"D.207","lecturer":"TS. Nguyễn Trần Phi Phượng","isLab":false,"weeks":"1-15"}]';
 
       const parts: any[] = [];
       if (fileData) {
@@ -1080,9 +1063,9 @@ export default async function handler(req: any, res: any) {
             data: fileData.replace(/^data:[^;]+;base64,/, '')
           }
         });
-        parts.push({ text: 'Trích xuất toàn bộ môn học trong ảnh sang mảng JSON.' });
+        parts.push({ text: 'Trích xuất môn học trong ảnh sang JSON array.' });
       } else if (textData) {
-        parts.push({ text: 'Trích xuất lịch học từ văn bản sau:\n' + textData });
+        parts.push({ text: 'Trích xuất lịch học:\n' + textData });
       } else {
         return res.status(400).json({ success: false, error: 'Thiếu dữ liệu thời khóa biểu' });
       }
@@ -1093,7 +1076,7 @@ export default async function handler(req: any, res: any) {
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 4096,
+          maxOutputTokens: 2048,
           responseMimeType: 'application/json'
         }
       };
@@ -1115,12 +1098,12 @@ export default async function handler(req: any, res: any) {
       const fileData = fileBase64 || imageBase64;
       const detectedMimeType = mimeType || (fileName?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
 
-      const presetText = universityPreset ? ('Quy chuẩn trường: ' + universityPreset + '.') : '';
-      const promptText = customPrompt ? ('YÊU CẦU BỔ SUNG: ' + customPrompt) : '';
+      const presetText = universityPreset ? ('Trường: ' + universityPreset) : '';
+      const promptText = customPrompt ? ('Yêu cầu: ' + customPrompt) : '';
 
-      const systemInstruction = 'Trích xuất các lớp học phần từ tài liệu thời khóa biểu sang JSON Array:\n' +
-        presetText + '\n' + promptText + '\nSCHEMA:\n' +
-        '[\n  {\n    "stt": 1,\n    "courseCode": "COMP1802",\n    "classCode": "2511COMP180202",\n    "courseName": "Cấu trúc dữ liệu và giải thuật",\n    "classType": "LT",\n    "group": "Lớp 02",\n    "dayOfWeek": 2,\n    "startPeriod": 1,\n    "endPeriod": 3,\n    "room": "D.207 LVS",\n    "lecturer": "TS. Nguyễn Trần Phi Phượng",\n    "weeks": "1-15"\n  }\n]';
+      const systemInstruction = 'Trích xuất danh mục lớp học phần sang JSON:\n' +
+        presetText + ' ' + promptText + '\n' +
+        '[{"stt":1,"courseCode":"COMP1802","classCode":"2511COMP180202","courseName":"CTDL & Giải thuật","classType":"LT","group":"Lớp 02","dayOfWeek":2,"startPeriod":1,"endPeriod":3,"room":"D.207","lecturer":"TS. Nguyễn Trần Phi Phượng","weeks":"1-15"}]';
 
       const parts: any[] = [];
       if (fileData) {
@@ -1130,9 +1113,9 @@ export default async function handler(req: any, res: any) {
             data: fileData.replace(/^data:[^;]+;base64,/, '')
           }
         });
-        parts.push({ text: 'Trích xuất chính xác các lớp học phần sang JSON Array.' });
+        parts.push({ text: 'Trích xuất lớp học phần sang JSON array.' });
       } else if (textData) {
-        parts.push({ text: 'Trích xuất danh mục thời khóa biểu từ văn bản:\n' + textData });
+        parts.push({ text: 'Trích xuất lịch học:\n' + textData });
       } else {
         return res.status(400).json({ success: false, error: 'Thiếu dữ liệu thời khóa biểu' });
       }
@@ -1143,7 +1126,7 @@ export default async function handler(req: any, res: any) {
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 4096,
+          maxOutputTokens: 2048,
           responseMimeType: 'application/json'
         }
       };
@@ -1159,7 +1142,7 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 3. EXPLAIN_CODE
+    // 3. EXPLAIN_CODE (ALGORITHM & BIG-O ANALYZER)
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
       if (!code || typeof code !== 'string' || !code.trim()) {
@@ -1167,36 +1150,30 @@ export default async function handler(req: any, res: any) {
       }
 
       if (code.length > MAX_CODE_LENGTH) {
-        return res.status(400).json({ success: false, error: 'Mã nguồn vượt quá giới hạn (tối đa 100KB).' });
+        return res.status(400).json({ success: false, error: 'Mã nguồn vượt quá giới hạn (tối đa 50KB).' });
       }
 
-      const systemInstruction = 'Bạn là Trợ lý Chuyên gia Phân tích Thuật toán & Trình biên dịch C++/Python/Java của FIT HCMUE.\n' +
-        'Hãy đọc kỹ và phân tích CHÍNH XÁC đoạn mã nguồn sau:\n\n' +
-        '```' + (language || 'cpp') + '\n' + code + '\n```\n\n' +
-        'YÊU CẦU PHÂN TÍCH CHUYÊN SÂU:\n' +
-        '1. timeComplexity: Tính toán chính xác độ phức tạp Worst-case Big-O dựa trên vòng lặp, đệ quy, Fenwick Tree/Segment Tree, sorting (VD: O(1), O(log n), O(n), O(n log n), O(n log(max_val)), O(n²)).\n' +
-        '2. spaceComplexity: Tính bộ nhớ phụ trợ Auxiliary Space (stack đệ quy, vector sự kiện, mảng BIT).\n' +
-        '3. isOptimal: boolean (true nếu đã tối ưu, false nếu còn giải thuật tốt hơn).\n' +
-        '4. spaceType: Chuỗi mô tả (VD: "Tại chỗ (In-place)" hoặc "Bộ nhớ phụ trợ O(...)").\n' +
-        '5. dryRunSteps: Tự tạo 1 bộ dữ liệu đầu vào nhỏ cụ thể khớp với bài toán của đoạn code này và mô phỏng 3-5 bước chạy thực tế. Cột variables phải ghi rõ giá trị các biến tương ứng.\n' +
-        '6. warnings: Chỉ ra các lỗi tiềm ẩn thực tế trong đoạn mã này (tràn số, thứ tự comparator khi bằng tọa độ, thiếu điều kiện biên, lỗi con trỏ, lặp vô tận).\n' +
-        '7. optimizations: Đề xuất cải tiến giải thuật hoặc cấu trúc dữ liệu tối ưu hơn (ví dụ: nén tọa độ Coordinate Compression).\n' +
-        '8. edgeCases: Các trường hợp biên cần kiểm tra (mảng rỗng, 1 phần tử, số âm, đoạn thẳng trùng nhau hoặc cắt nhau ở đầu mút).\n' +
-        '9. summary: Tóm tắt nhận xét giải thuật ngắn gọn trong 1 câu.\n\n' +
-        'SCHEMA:\n{\n  "timeComplexity": "O(...)",\n  "spaceComplexity": "O(...)",\n  "isOptimal": true,\n  "spaceType": "...",\n  "dryRunSteps": [{"step": 1, "desc": "...", "variables": "..."}],\n  "warnings": ["..."],\n  "optimizations": ["..."],\n  "edgeCases": ["..."],\n  "summary": "..."\n}';
+      const systemInstruction = 'Bạn là Chuyên gia Thuật toán & Trình biên dịch FIT HCMUE. Phân tích CHÍNH XÁC độ phức tạp và mô phỏng chạy code.\n\n' +
+        'YÊU CẦU BẮT BUỘC:\n' +
+        '1. timeComplexity: Big-O Worst-case chính xác (VD: O(1), O(log n), O(n), O(n log n), O(n log(max_val))).\n' +
+        '2. spaceComplexity: Auxiliary Space chính xác (VD: O(1), O(n)).\n' +
+        '3. dryRunSteps: Tối đa 3 bước chạy quan trọng nhất với dữ liệu mẫu nhỏ.\n' +
+        '4. warnings: Chỉ ra lỗi logic/comparator/tràn số thực tế nếu có.\n' +
+        '5. optimizations: 1-2 gợi ý tối ưu quan trọng nhất.\n\n' +
+        'SCHEMA JSON DUY NHẤT:\n{\n  "timeComplexity": "O(...)",\n  "spaceComplexity": "O(...)",\n  "isOptimal": true,\n  "spaceType": "Tại chỗ (In-place)",\n  "dryRunSteps": [{"step": 1, "desc": "...", "variables": "..."}],\n  "warnings": ["..."],\n  "optimizations": ["..."],\n  "edgeCases": ["..."],\n  "summary": "..."\n}';
 
       const geminiPayload = {
         contents: [
           {
             role: 'user',
-            parts: [{ text: 'Phân tích thuật toán mã nguồn ' + (language || 'lập trình') + ' này theo yêu cầu:\n\n' + code }]
+            parts: [{ text: 'Phân tích mã nguồn ' + (language || 'cpp') + ':\n\n' + code }]
           }
         ],
         systemInstruction: { parts: [{ text: systemInstruction }] },
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 3072,
+          maxOutputTokens: 2048,
           responseMimeType: 'application/json'
         }
       };
