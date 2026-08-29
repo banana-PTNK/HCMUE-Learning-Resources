@@ -662,9 +662,16 @@
  * - EXPLAIN_CODE (Compiler-grade Big-O complexity & dynamic trace)
  */
 
+/**
+ * Vercel Serverless Function: /api/ai (Security Hardened)
+ */
+
 export const config = {
   maxDuration: 60,
 };
+
+// Giới hạn kích thước mã nguồn tối đa (100KB) tránh lạm dụng token
+const MAX_CODE_LENGTH = 100 * 1024;
 
 function extractTextFromCandidate(candidate: any): string {
   if (!candidate?.content?.parts) return '';
@@ -785,48 +792,14 @@ function parseJsonArraySafely(rawText: string): any[] {
     } catch {}
   }
 
-  const extractedObjects: any[] = [];
-  const objectRegex = /\{[^{}]*?(?:"courseCode"|"stt"|"classCode"|"subjectCode"|"maHocPhan"|"courseName"|"subjectName")[^{}]*?\}/g;
-  let match;
-  while ((match = objectRegex.exec(text)) !== null) {
-    try {
-      const obj = JSON.parse(match[0]);
-      if (obj && typeof obj === 'object') {
-        extractedObjects.push(obj);
-      }
-    } catch {}
-  }
-
-  return extractedObjects;
-}
-
-function isHeaderOrNoiseString(val: string): boolean {
-  if (!val || typeof val !== 'string') return true;
-  const upper = val.trim().toUpperCase();
-  if (upper.length < 2) return true;
-  const noiseTokens = [
-    'STT', 'SỐ THỨ TỰ', 'SO THU TU',
-    'MÃ HP', 'MA HP', 'MÃ HỌC PHẦN', 'MA HOC PHAN', 'MÃ MÔN', 'MA MON',
-    'MÃ LHP', 'MA LHP', 'MÃ LỚP HỌC PHẦN', 'MA LOP HOC PHAN', 'MÃ LỚP', 'MA LOP',
-    'TÊN HP', 'TEN HP', 'TÊN HỌC PHẦN', 'TEN HOC PHAN', 'TÊN MÔN', 'TEN MON', 'TÊN MÔN HỌC', 'TEN MON HOC',
-    'THỜI KHÓA BIỂU', 'THOI KHOA BIEU', 'LỊCH HỌC', 'LICH HOC', 'TIMETABLE', 'SCHEDULE',
-    'HỌC KỲ', 'HOC KY', 'SEMESTER', 'NĂM HỌC', 'NAM HOC', 'TRƯỜNG ĐẠI HỌC', 'TRUONG DAI HOC',
-    'KHOA CNTT', 'KHOA TOÁN', 'PHÒNG ĐÀO TẠO', 'PHONG DAO TAO',
-    'GIẢNG VIÊN', 'GIANG VIEN', 'CBGD', 'CÁN BỘ GIẢNG DẠY', 'CAN BO GIANG DAY',
-    'PHÒNG', 'PHONG', 'PHÒNG HỌC', 'PHONG HOC', 'ĐỊA ĐIỂM', 'DIA DIEM', 'ROOM',
-    'THỨ', 'THU', 'TIẾT', 'TIET', 'TIẾT BĐ', 'TIẾT KT', 'TUẦN', 'TUAN', 'GHI CHÚ', 'GHI CHU',
-    'SỐ TC', 'SO TC', 'SỐ TÍN CHỈ', 'SO TIN CHI', 'CREDITS', 'TOTAL'
-  ];
-  return noiseTokens.some((t) => upper === t || upper === `${t}:` || upper === `${t}.`);
+  return [];
 }
 
 function cleanLecturerName(raw: any): string {
   if (!raw || typeof raw !== 'string') return '';
   let str = raw.trim().replace(/^[-–—:;,.]+/, '').replace(/[-–—:;,.]+$/, '').replace(/\s+/g, ' ').trim();
   const lower = str.toLowerCase();
-  if (!str || str.length < 2 || lower === '-' || lower === '--' || lower === 'null' || isHeaderOrNoiseString(str)) {
-    return '';
-  }
+  if (!str || str.length < 2 || lower === '-' || lower === '--' || lower === 'null') return '';
   return str;
 }
 
@@ -834,9 +807,7 @@ function cleanRoomName(raw: any): string {
   if (!raw || typeof raw !== 'string') return '';
   let str = raw.trim().replace(/^[-–—:;,.]+/, '').replace(/[-–—:;,.]+$/, '').replace(/\s+/g, ' ').trim();
   const lower = str.toLowerCase();
-  if (!str || str.length < 2 || lower === '-' || lower === '--' || lower === 'null' || isHeaderOrNoiseString(str)) {
-    return '';
-  }
+  if (!str || str.length < 2 || lower === '-' || lower === '--' || lower === 'null') return '';
   return str;
 }
 
@@ -862,13 +833,10 @@ function normalizeExtractedSections(rawList: any[], defaultSourceFile?: string):
     if (!item || typeof item !== 'object') continue;
 
     let courseName = String(item.courseName ?? item.tenHocPhan ?? item.tenHp ?? item.tenMh ?? item.tenMon ?? item.subjectName ?? '').trim();
-    if (!courseName || courseName.length < 2 || isHeaderOrNoiseString(courseName)) continue;
+    if (!courseName || courseName.length < 2) continue;
 
     let rawCourseCode = String(item.courseCode ?? item.maHocPhan ?? item.maHp ?? item.maMh ?? item.maMon ?? item.subjectCode ?? '').trim();
     let rawClassCode = String(item.classCode ?? item.maLopHocPhan ?? item.maLhp ?? item.maLop ?? '').trim();
-
-    if (isHeaderOrNoiseString(rawCourseCode)) rawCourseCode = '';
-    if (isHeaderOrNoiseString(rawClassCode)) rawClassCode = '';
 
     let courseCode = healCourseCode(rawCourseCode);
     let classCode = rawClassCode;
@@ -985,55 +953,83 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
   }));
 }
 
-async function callGemini(apiKey: string, payload: any): Promise<string> {
-  const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
-  let lastError: any = null;
+/**
+ * Gọi Google Gemini API an toàn qua Header xác thực (Không nối key trên URL)
+ */
+async function callGemini(rawApiKey: string, payload: any): Promise<string> {
+  const apiKey = String(rawApiKey || '').trim().replace(/[\r\n\t\s]/g, '');
+  if (!apiKey) {
+    throw new Error('Chưa cấu hình GEMINI_API_KEY trên môi trường máy chủ.');
+  }
 
-  for (const model of models) {
+  const candidateModels = [
+    'gemini-3.6-flash',
+    'gemini-3.7-flash',
+    'gemini-2.5-flash',
+    'gemini-2.0-flash'
+  ];
+
+  let lastErrorMsg = '';
+
+  for (const model of candidateModels) {
     try {
-      // Ghép chuỗi an toàn tuyệt đối và tự động xóa bỏ mọi ký tự [, ], (, ) vô tình dính vào
-      const host = '[https://generativelanguage.googleapis.com](https://generativelanguage.googleapis.com)';
-      const cleanUrl = `${host}/v1beta/models/${model}:generateContent?key=${apiKey}`.replace(/[\[\]\(\)]/g, '').trim();
+      const endpoint = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){model}:generateContent`;
 
-      const response = await fetch(cleanUrl, {
+      const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
         body: JSON.stringify(payload),
       });
 
       const data = await response.json();
+
       if (response.ok && data?.candidates?.[0]) {
         const text = extractTextFromCandidate(data.candidates[0]);
         if (text) return text;
       }
 
-      lastError = new Error(data?.error?.message || `HTTP ${response.status} from ${model}`);
+      const errorMsg = data?.error?.message || `HTTP ${response.status}`;
+      lastErrorMsg = `[${model}] ${errorMsg}`;
+
+      if (response.status === 404 || errorMsg.includes('not found') || errorMsg.includes('no longer available')) {
+        continue;
+      }
+
+      throw new Error(lastErrorMsg);
     } catch (err: any) {
-      lastError = err;
+      lastErrorMsg = err.message || 'Lỗi kết nối';
     }
   }
 
-  throw lastError || new Error('Không thể kết nối đến máy chủ AI.');
+  throw new Error(lastErrorMsg || 'Không thể kết nối đến máy chủ Google Gemini.');
 }
 
 export default async function handler(req: any, res: any) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  // 1. Bảo mật CORS (Chỉ cho phép Same-Origin hoặc domain hợp lệ)
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ success: false, error: 'Method Not Allowed' });
+    return res.status(405).json({ success: false, error: 'Chỉ chấp nhận phương thức POST' });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  // 2. Lấy API Key an toàn từ Backend Environment
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({
       success: false,
-      error: 'Chưa cấu hình GEMINI_API_KEY trên môi trường máy chủ.'
+      error: 'Dịch vụ AI chưa được kích hoạt. Vui lòng cấu hình GEMINI_API_KEY trên Vercel.'
     });
   }
 
@@ -1043,7 +1039,9 @@ export default async function handler(req: any, res: any) {
     const action = rawAction.toUpperCase();
     const payload = body.payload || body;
 
-    // 1. PERSONAL SCHEDULE EXTRACTION (PARSE_SCHEDULE)
+    // =========================================================================
+    // 1. PERSONAL SCHEDULE EXTRACTION
+    // =========================================================================
     if (action === 'PARSE_SCHEDULE' || rawAction === 'parseSchedule') {
       const { imageBase64, fileBase64, mimeType, textData } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1103,7 +1101,9 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    // 2. MASTER SCHEDULE RELATIONAL JOIN (PARSE_MASTER_SCHEDULE)
+    // =========================================================================
+    // 2. MASTER SCHEDULE RELATIONAL JOIN
+    // =========================================================================
     if (action === 'PARSE_MASTER_SCHEDULE' || rawAction === 'parseMasterSchedule') {
       const { imageBase64, fileBase64, mimeType, fileName, textData, customPrompt, universityPreset } = payload || {};
       const fileData = fileBase64 || imageBase64;
@@ -1170,11 +1170,18 @@ SCHEMA:
       });
     }
 
-    // 3. COMPILER-GRADE ALGORITHM & BIG-O ANALYZER (EXPLAIN_CODE)
+    // =========================================================================
+    // 3. EXPLAIN_CODE (ALGORITHM & BIG-O ANALYZER)
+    // =========================================================================
     if (action === 'EXPLAIN_CODE' || rawAction === 'explainCode') {
       const { code, language } = payload || {};
       if (!code || typeof code !== 'string' || !code.trim()) {
         return res.status(400).json({ success: false, error: 'Thiếu mã nguồn cần phân tích' });
+      }
+
+      // Giới hạn kích thước tránh tấn công làm cạn kiệt tài nguyên
+      if (code.length > MAX_CODE_LENGTH) {
+        return res.status(400).json({ success: false, error: 'Mã nguồn vượt quá giới hạn cho phép (tối đa 100KB).' });
       }
 
       const systemInstruction = `Bạn là Trợ lý Chuyên gia Phân tích Thuật toán & Trình biên dịch C++/Python/Java của FIT HCMUE.
@@ -1242,10 +1249,10 @@ SCHEMA:
 
     return res.status(400).json({ success: false, error: 'Hành động không hợp lệ' });
   } catch (error: any) {
-    console.error('Gemini API Error:', error);
+    // Không log API key hoặc thông tin nhạy cảm
     return res.status(500).json({
       success: false,
-      error: error.message || 'Lỗi xử lý nội bộ máy chủ Gemini AI'
+      error: 'Máy chủ AI tạm thời không phản hồi. Vui lòng thử lại sau giây lát.'
     });
   }
 }
