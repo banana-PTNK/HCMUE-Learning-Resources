@@ -635,9 +635,10 @@
 //   }
 // }
 
+
 /**
  * Vercel Serverless Function: /api/ai
- * Ultra-Fast & High-Accuracy AI Assistant Engine
+ * Ultra-Fast & High-Accuracy AI Assistant Engine powered by Gemini 3.6 Flash
  * Supports:
  * - PARSE_SCHEDULE (Personal student schedule vision extraction)
  * - PARSE_MASTER_SCHEDULE (Master course sections relational join)
@@ -961,11 +962,10 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Gọi REST API tới Gemini với các Model đang hoạt động chuẩn xác trên v1beta
+ * Gọi REST API tới Gemini 3.6 Flash
  */
 async function callGemini(apiKey: string, payload: any, timeoutMs: number = 15000): Promise<string> {
-  // Chỉ sử dụng các model đang hoạt động chuẩn trên v1beta (Gemini 2.5 Flash & Gemini 2.0 Flash)
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+  const models = ['gemini-3.6-flash', 'gemini-2.5-flash'];
   let lastError: any = null;
 
   for (const model of models) {
