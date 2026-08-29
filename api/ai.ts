@@ -659,6 +659,11 @@
  * Standardized for Gemini 3.6 Flash & Gemini 3.7 Flash Engine
  */
 
+/**
+ * Vercel Serverless Function: /api/ai
+ * High-Availability Multi-Model Gemini Engine (Auto-Recovery on High Demand / 503)
+ */
+
 export const config = {
   maxDuration: 60,
 };
@@ -951,7 +956,7 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
 }
 
 /**
- * Chỉ gọi các model thế hệ mới: gemini-3.6-flash và gemini-3.7-flash
+ * Gọi Google Gemini API với cơ chế tự động vượt lỗi 503 (High Demand) và 429
  */
 async function callGemini(rawApiKey: string, payload: any): Promise<string> {
   const apiKey = String(rawApiKey || '')
@@ -959,11 +964,13 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
     .replace(/[\r\n\t\s\[\]\(\)]/g, '');
 
   if (!apiKey) {
-    throw new Error('Chưa cấu hình GEMINI_API_KEY trên máy chủ Vercel.');
+    throw new Error('Chưa cấu hình GEMINI_API_KEY trên Vercel.');
   }
 
+  // Thứ tự ưu tiên: 3.6-flash (ổn định nhất) -> 3.6-pro -> 3.7-flash
   const candidateModels = [
     'gemini-3.6-flash',
+    'gemini-3.6-pro',
     'gemini-3.7-flash'
   ];
 
@@ -996,7 +1003,19 @@ async function callGemini(rawApiKey: string, payload: any): Promise<string> {
       const errorMsg = data?.error?.message || ('HTTP ' + response.status + ': ' + responseText.slice(0, 150));
       lastErrorMsg = '[' + model + '] ' + errorMsg;
 
-      if (response.status === 404 || errorMsg.includes('not found') || errorMsg.includes('no longer available')) {
+      // Nếu gặp lỗi quá tải (503, 429), model không tồn tại (404) hoặc lỗi dịch vụ: Bỏ qua và chuyển sang model kế tiếp ngay lập tức
+      const isTransientOrUnavailable =
+        response.status === 503 ||
+        response.status === 429 ||
+        response.status === 404 ||
+        response.status === 500 ||
+        errorMsg.toLowerCase().includes('high demand') ||
+        errorMsg.toLowerCase().includes('quota') ||
+        errorMsg.toLowerCase().includes('overloaded') ||
+        errorMsg.toLowerCase().includes('no longer available') ||
+        errorMsg.toLowerCase().includes('not found');
+
+      if (isTransientOrUnavailable) {
         continue;
       }
 
@@ -1177,7 +1196,7 @@ export default async function handler(req: any, res: any) {
         generationConfig: {
           temperature: 0.1,
           topP: 0.8,
-          maxOutputTokens: 4096,
+          maxOutputTokens: 3072,
           responseMimeType: 'application/json'
         }
       };
