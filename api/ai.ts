@@ -646,7 +646,7 @@
  */
 
 export const config = {
-  maxDuration: 60,
+  maxDuration: 60, // Cho phép Vercel chạy tối đa 60s, không lo timeout
 };
 
 function extractTextFromCandidate(candidate: any): string {
@@ -713,7 +713,7 @@ function normalizeAnalysisResult(raw: any) {
   if (!Array.isArray(rawSteps)) rawSteps = [];
   const dryRunSteps = rawSteps.map((s: any, idx: number) => ({
     step: Number(s.step || s.stepNumber || idx + 1),
-    desc: String(s.desc || s.description || s.action || s.explanation || `Bước thực thi ${idx + 1}`),
+    desc: String(s.desc || s.description || s.action || s.explanation || `Bước ${idx + 1}`),
     variables: String(s.variables || s.vars || s.state || s.values || '')
   }));
 
@@ -949,25 +949,19 @@ function normalizePersonalSchedule(rawList: any[]): any[] {
   }));
 }
 
-async function callGemini(apiKey: string, payload: any, timeoutMs: number = 15000): Promise<string> {
+// Gọi API Gemini ổn định không bị ngắt quãng giữa chừng
+async function callGemini(apiKey: string, payload: any): Promise<string> {
   const models = ['gemini-3.6-flash', 'gemini-3.7-flash'];
   let lastError: any = null;
 
   for (const model of models) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-      // Cú pháp nội suy chuỗi Template Literal chuẩn xác bằng dấu backtick
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: controller.signal,
       });
-
-      clearTimeout(timeoutId);
 
       const data = await response.json();
       if (response.ok && data?.candidates?.[0]) {
@@ -1060,7 +1054,7 @@ export default async function handler(req: any, res: any) {
         }
       };
 
-      const responseText = await callGemini(apiKey, geminiPayload, 20000);
+      const responseText = await callGemini(apiKey, geminiPayload);
       const parsedData = parseJsonArraySafely(responseText);
       const normalizedData = normalizePersonalSchedule(parsedData);
 
@@ -1127,7 +1121,7 @@ SCHEMA:
         }
       };
 
-      const responseText = await callGemini(apiKey, geminiPayload, 30000);
+      const responseText = await callGemini(apiKey, geminiPayload);
       const parsedData = parseJsonArraySafely(responseText);
       const normalizedData = normalizeExtractedSections(parsedData, fileName);
 
@@ -1192,7 +1186,7 @@ TRẢ VỀ DUY NHẤT MỘT JSON OBJECT:
         }
       };
 
-      const responseText = await callGemini(apiKey, geminiPayload, 15000);
+      const responseText = await callGemini(apiKey, geminiPayload);
       const parsedRaw = parseJsonObjectSafely(responseText);
       const normalizedResult = normalizeAnalysisResult(parsedRaw);
 
