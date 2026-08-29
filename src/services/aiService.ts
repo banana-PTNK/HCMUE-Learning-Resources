@@ -228,93 +228,31 @@ export async function parseScheduleAI(payload: {
 /**
  * Ultra-fast algorithm and Big-O explanation via Gemini 3.7 Flash with fail-fast handling.
  */
-// export async function explainCodeAI(payload: {
-//   code: string;
-//   language: string;
-// }): Promise<{ success: boolean; data: CodeAnalysisResult; isMock?: boolean; message?: string }> {
-//   const response = await fetch('/api/ai', {
-//     method: 'POST',
-//     headers: {
-//       'Content-Type': 'application/json'
-//     },
-//     body: JSON.stringify({
-//       action: 'EXPLAIN_CODE',
-//       payload
-//     })
-//   });
+export async function explainCodeAI(payload: {
+  code: string;
+  language: string;
+}): Promise<{ success: boolean; data: CodeAnalysisResult; isMock?: boolean; message?: string }> {
+  const response = await fetch('/api/ai', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      action: 'EXPLAIN_CODE',
+      payload
+    })
+  });
 
-//   const parsedRes = await parseResponseSafely(response);
-//   if (!parsedRes.ok || !parsedRes.data || parsedRes.data.success === false) {
-//     const errMsg = parsedRes.data?.error || parsedRes.errorText || `Lỗi phân tích mã nguồn (${response.status})`;
-//     throw new Error(errMsg);
-//   }
-
-//   return {
-//     success: true,
-//     data: parsedRes.data.data as CodeAnalysisResult,
-//     message: parsedRes.data.message || 'Đã phân tích mã nguồn thành công'
-//   };
-// }
-import { CodeAnalysisResult, MasterCourseSection } from '../types';
-
-/**
- * Phân tích thuật toán và độ phức tạp Big-O (Trợ lý Code)
- */
-export async function explainCodeAI(params: { code: string; language: string }): Promise<{ success: boolean; data?: CodeAnalysisResult; error?: string }> {
-  try {
-    const res = await fetch('/api/ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'explainCode',
-        code: params.code,
-        language: params.language
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || `Lỗi máy chủ (${res.status})`);
-    }
-
-    return { success: true, data: data.data };
-  } catch (err: any) {
-    console.error('Lỗi khi gọi explainCodeAI:', err);
-    throw new Error(err.message || 'Không thể kết nối đến hệ thống phân tích mã nguồn.');
+  const parsedRes = await parseResponseSafely(response);
+  if (!parsedRes.ok || !parsedRes.data || parsedRes.data.success === false) {
+    const errMsg = parsedRes.data?.error || parsedRes.errorText || `Lỗi phân tích mã nguồn (${response.status})`;
+    throw new Error(errMsg);
   }
+
+  return {
+    success: true,
+    data: parsedRes.data.data as CodeAnalysisResult,
+    message: parsedRes.data.message || 'Đã phân tích mã nguồn thành công'
+  };
 }
 
-/**
- * Trích xuất thời khóa biểu bằng AI (Bảo toàn nguyên vẹn cho AiSchedulePage)
- */
-export async function parseMasterScheduleAI(params: {
-  textData?: string;
-  customPrompt?: string;
-  universityPreset?: string;
-}): Promise<{ success: boolean; data: MasterCourseSection[]; message?: string }> {
-  try {
-    const res = await fetch('/api/ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'parseMasterSchedule',
-        textData: params.textData,
-        customPrompt: params.customPrompt,
-        universityPreset: params.universityPreset
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Lỗi trích xuất thời khóa biểu');
-    }
-
-    return {
-      success: true,
-      data: Array.isArray(data.data) ? data.data : []
-    };
-  } catch (err: any) {
-    console.error('Lỗi khi trích xuất TKB:', err);
-    throw new Error(err.message || 'Không thể trích xuất thời khóa biểu qua AI.');
-  }
-}
