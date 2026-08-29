@@ -255,8 +255,6 @@
 //     message: parsedRes.data.message || 'Đã phân tích mã nguồn thành công'
 //   };
 // }
-
-
 import { CodeAnalysisResult, MasterCourseSection } from '../types';
 
 export interface ExplainCodeParams {
@@ -289,7 +287,7 @@ export interface ParseScheduleResponse {
 
 /**
  * Phân tích thuật toán và độ phức tạp Big-O (Trợ Lý Code)
- * Đẩy qua Serverless API Gateway /api/ai
+ * Chuyển tiếp 100% request qua Serverless API Gateway /api/ai
  */
 export async function explainCodeAI(
   params: ExplainCodeParams
