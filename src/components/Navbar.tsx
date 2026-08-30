@@ -119,7 +119,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <div className="flex flex-col justify-center leading-tight select-none">
             <span className="text-lg font-black tracking-tight text-[#124874] dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-              HCMUE
+              EduMate
             </span>
             <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 tracking-tight whitespace-nowrap">
               Kho Học Liệu CNTT
