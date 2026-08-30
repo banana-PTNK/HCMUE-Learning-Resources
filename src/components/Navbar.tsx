@@ -122,7 +122,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               EduMate
             </span>
             <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 tracking-tight whitespace-nowrap">
-              Kho Học Liệu CNTT
+              Nền tảng học liệu số
             </span>
           </div>
         </div>
