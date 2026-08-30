@@ -1,3 +1,5 @@
+import { adminService } from '../../server/services/admin.service';
+
 export default function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -12,12 +14,10 @@ export default function handler(req: any, res: any) {
     ? authHeader.slice(7).trim()
     : req.body?.token;
 
-  if (!token || typeof token !== 'string') {
-    return res.status(401).json({ valid: false, message: 'Thiếu token xác thực' });
+  const result = adminService.verifySession(token);
+  if (!result.valid) {
+    return res.status(401).json(result);
   }
 
-  return res.status(200).json({
-    valid: true,
-    expiresIn: 43200
-  });
+  return res.status(200).json(result);
 }
