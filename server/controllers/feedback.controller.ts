@@ -16,7 +16,8 @@ export class FeedbackController {
   updateStatus(req: Request, res: Response) {
     const { id } = req.params;
     const status = req.body?.status;
-    const success = feedbackService.updateStatus(id, status);
+    const adminNote = req.body?.adminNote;
+    const success = feedbackService.updateStatus(id, status, adminNote);
     return res.json({ success });
   }
 

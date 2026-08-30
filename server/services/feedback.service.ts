@@ -17,20 +17,25 @@ class FeedbackService {
       userPhone: body.userPhone || '',
       rating: Number(body.rating) || 5,
       status: body.status || 'unread',
-      createdAt: body.createdAt || new Date().toISOString()
+      createdAt: body.createdAt || new Date().toISOString(),
+      ...(body.adminNote ? { adminNote: body.adminNote } : {})
     };
     list.unshift(newFeedback);
     feedbackRepository.saveAll(list);
     return newFeedback;
   }
 
-  updateStatus(id: string, status: string): boolean {
+  updateStatus(id: string, status?: string, adminNote?: string): boolean {
     const list = feedbackRepository.getAll();
     let found = false;
     const updated = list.map((item) => {
       if (item.id === id) {
         found = true;
-        return { ...item, status: status || item.status };
+        return {
+          ...item,
+          status: status || item.status,
+          ...(adminNote !== undefined ? { adminNote } : {})
+        };
       }
       return item;
     });

@@ -51,9 +51,22 @@ export function setMemoryAnnouncements(list: Announcement[]): void {
 }
 
 /**
- * Fetch announcements from Firestore with local fallback
+ * Fetch announcements from Server API and Firestore with local fallback
  */
 export async function fetchAnnouncements(): Promise<Announcement[]> {
+  // 1. Try Server REST API first
+  try {
+    const res = await fetch('/api/announcements');
+    if (res.ok) {
+      const json = await res.json();
+      if (json && Array.isArray(json.data) && json.data.length > 0) {
+        setMemoryAnnouncements(json.data);
+        return json.data;
+      }
+    }
+  } catch {}
+
+  // 2. Try Firestore fallback
   try {
     const snapshot = await getDocs(collection(db, ANNOUNCEMENTS_COLLECTION));
     if (!snapshot.empty) {
@@ -70,6 +83,7 @@ export async function fetchAnnouncements(): Promise<Announcement[]> {
   } catch (error) {
     console.warn('Firestore fetch announcements failed, using cached:', error);
   }
+
   return getStoredAnnouncements();
 }
 
@@ -99,6 +113,15 @@ export async function saveAnnouncement(announcement: Omit<Announcement, 'id'> & 
 
   setMemoryAnnouncements(updatedList);
 
+  // Sync to Server REST API
+  try {
+    fetch('/api/announcements', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fullAnnouncement)
+    }).catch(() => {});
+  } catch {}
+
   // Sync to Firestore
   try {
     const docRef = doc(db, ANNOUNCEMENTS_COLLECTION, id);
@@ -120,6 +143,11 @@ export async function deleteAnnouncement(id: string): Promise<void> {
   const currentList = getStoredAnnouncements();
   const updatedList = currentList.filter((a) => a.id !== id);
   setMemoryAnnouncements(updatedList);
+
+  // Sync to Server REST API
+  try {
+    fetch(`/api/announcements/${id}`, { method: 'DELETE' }).catch(() => {});
+  } catch {}
 
   // Sync to Firestore
   try {

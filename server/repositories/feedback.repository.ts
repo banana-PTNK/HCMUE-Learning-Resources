@@ -8,10 +8,12 @@ export interface FeedbackRecord {
   content: string;
   userName: string;
   userEmail: string;
-  userPhone: string;
+  userPhone?: string;
+  studentId?: string;
   rating: number;
   status: 'unread' | 'read' | 'resolved' | string;
   createdAt: string;
+  adminNote?: string;
 }
 
 export class FeedbackRepository {
