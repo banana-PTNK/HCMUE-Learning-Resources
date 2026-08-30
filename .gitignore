@@ -61,6 +61,7 @@ out/
 coverage/
 .turbo/
 .cache/
+*Store.json
 
 # 6. Logs & Diagnostics
 *.log

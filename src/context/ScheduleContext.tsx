@@ -61,7 +61,11 @@ interface ScheduleContextType {
   clearQueue: () => void;
 
   // Actions
-  runScheduler: (customSelectedCodes?: string[], customConstraints?: ScheduleConstraints) => void;
+  runScheduler: (
+    customSelectedCodes?: string[],
+    customConstraints?: ScheduleConstraints,
+    customCatalog?: MasterCourseSection[]
+  ) => void;
   applySolution: (index: number) => void;
   handleBatchComplete: (
     newSections: MasterCourseSection[],
@@ -560,17 +564,22 @@ export const ScheduleProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Run CSP Scheduler
   const runScheduler = useCallback(
-    (customSelectedCodes?: string[], customConstraints?: ScheduleConstraints) => {
+    (
+      customSelectedCodes?: string[],
+      customConstraints?: ScheduleConstraints,
+      customCatalog?: MasterCourseSection[]
+    ) => {
       const codes = customSelectedCodes || selectedCourseCodes;
       const appliedConstraints = customConstraints || constraints;
+      const catalog = customCatalog || masterCatalog;
 
-      if (codes.length === 0 || masterCatalog.length === 0) {
+      if (codes.length === 0 || catalog.length === 0) {
         setSolutions([]);
         setActiveScheduleSections([]);
         return;
       }
 
-      const generated = solveTimetableCSP(masterCatalog, codes, appliedConstraints, 10);
+      const generated = solveTimetableCSP(catalog, codes, appliedConstraints, 10);
       setSolutions(generated);
 
       if (generated.length > 0) {

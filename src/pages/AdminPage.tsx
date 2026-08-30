@@ -1771,7 +1771,7 @@ Website: https://fit-hcmue-studyvault.web.app`;
                       </span>
                       <span className="text-xs text-slate-400 font-mono">
                         {(() => {
-                          const dateVal = fb.createdAt || fb.date;
+                          const dateVal = fb.createdAt || (fb as any).date;
                           if (!dateVal) return '';
                           let d: Date;
                           if (typeof dateVal === 'object' && (dateVal as any)?.toDate) {

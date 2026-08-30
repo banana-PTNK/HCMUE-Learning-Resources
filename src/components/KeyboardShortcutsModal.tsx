@@ -1,10 +1,24 @@
 import React from 'react';
-import { X, Keyboard, ArrowRight, BookOpen, Calendar, Bot, Upload, Bell, Search, CornerDownLeft } from 'lucide-react';
+import { X, Keyboard, BookOpen, Calendar, Bot, Upload, Bell, Search, CornerDownLeft, LucideIcon } from 'lucide-react';
 
 interface KeyboardShortcutsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigate?: (path: string) => void;
+}
+
+interface ShortcutItem {
+  key: string;
+  label: string;
+  desc: string;
+  path?: string;
+  action?: string;
+  icon: LucideIcon;
+}
+
+interface ShortcutGroup {
+  title: string;
+  items: ShortcutItem[];
 }
 
 export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
@@ -14,7 +28,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const shortcutGroups = [
+  const shortcutGroups: ShortcutGroup[] = [
     {
       title: 'Điều hướng nhanh (Navigation)',
       items: [
@@ -90,7 +104,7 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
     }
   ];
 
-  const handleItemClick = (item: { path?: string; action?: string }) => {
+  const handleItemClick = (item: ShortcutItem) => {
     if (item.path && typeof onNavigate === 'function') {
       onNavigate(item.path);
       onClose();
@@ -165,14 +179,9 @@ export const KeyboardShortcutsModal: React.FC<KeyboardShortcutsModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 shrink-0">
-          <span>Nhấn <kbd className="px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-[11px] text-slate-700 dark:text-slate-300">Esc</kbd> bất kỳ lúc nào để thoát</span>
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold transition-colors cursor-pointer"
-          >
-            Đã hiểu
-          </button>
+        <div className="px-6 py-3.5 bg-slate-50 dark:bg-slate-900/60 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 shrink-0">
+          <span>Nhấn <kbd className="px-1.5 py-0.5 rounded bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 font-mono text-[11px]">Esc</kbd> để đóng</span>
+          <span>HCMUE StudyVault</span>
         </div>
       </div>
     </div>

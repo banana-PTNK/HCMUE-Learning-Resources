@@ -1,41 +1,30 @@
-interface GenericRequest {
-  method?: string;
-  body?: any;
-}
+import { adminService } from '../../server/services/admin.service';
 
-interface GenericResponse {
-  status: (statusCode: number) => GenericResponse;
-  json: (data: any) => void;
-}
+export default async function handler(req: any, res: any) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-export default function handler(req: GenericRequest, res: GenericResponse) {
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ success: false, message: 'Method Not Allowed' });
   }
 
   try {
     const { password } = req.body || {};
-    const adminPassword = process.env.ADMIN_PASSWORD;
+    const clientIp = req.headers?.['x-forwarded-for']?.split?.(',')[0]?.trim() || req.socket?.remoteAddress || 'vercel-serverless';
+    const result = await adminService.login(password, clientIp);
 
-    if (!adminPassword) {
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Chưa thiết lập ADMIN_PASSWORD trên Vercel.' 
-      });
+    if (result.locked) {
+      return res.status(429).json(result);
     }
-
-    if (password !== adminPassword) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Mật khẩu quản trị không chính xác.' 
-      });
+    if (!result.success) {
+      return res.status(401).json(result);
     }
-
-    return res.status(200).json({ 
-      success: true, 
-      token: 'admin-authenticated-session',
-      message: 'Đăng nhập thành công' 
-    });
+    return res.status(200).json(result);
   } catch (error: any) {
     return res.status(500).json({ 
       success: false, 
