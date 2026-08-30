@@ -1,4 +1,4 @@
-# HCMUE-FIT StudyVault
+# EduMate - Kho học liệu số
 
 Nền tảng Kho tài liệu, Lập thời khóa biểu thông minh và Trợ lý giải thuật AI dành cho sinh viên Khoa Công nghệ Thông tin - Trường Đại học Sư phạm TP.HCM (HCMUE).
 

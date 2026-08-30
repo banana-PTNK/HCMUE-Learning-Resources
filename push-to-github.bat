@@ -1,6 +1,6 @@
 @echo off
 REM ==============================================================================
-REM HCMUE-FIT StudyVault - Automated GitHub Push Script (Windows)
+REM EduMate - Kho học liệu số - Automated GitHub Push Script (Windows)
 REM Zero-Leak Security Automated Push
 REM ==============================================================================
 
@@ -8,7 +8,7 @@ setlocal enabledelayedexpansion
 
 echo.
 echo ========================================================
-echo   HCMUE-FIT StudyVault - Automated GitHub Publisher
+echo   EduMate - Kho học liệu số - Automated GitHub Publisher
 echo   (Chuan Bao Mat Zero-Leak)
 echo ========================================================
 echo.
